@@ -6,10 +6,13 @@
     body{font-family:Arial;margin:16px}
     video{width:100%;border-radius:14px;background:#000}
     input,button{font-size:18px;padding:12px;width:100%;margin:8px 0;box-sizing:border-box}
-    .small{font-size:13px;opacity:.85}
+    .small{font-size:13px;opacity:.9}
     .ok{color:#0a7}.err{color:#c00}
     .box{padding:12px;border:1px solid #ddd;border-radius:14px}
+    pre{white-space:pre-wrap;word-break:break-word}
   </style>
+
+  <!-- ZXing (1D barcode üçün güclü) -->
   <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
 </head>
 <body>
@@ -24,29 +27,40 @@
   <div class="box" style="margin-top:12px;">
     <video id="video" playsinline></video>
     <div id="status" class="small"></div>
+    <pre id="debug" class="small"></pre>
   </div>
 
-  <button id="start">Scan başla</button>
-  <button id="stop" style="display:none;">Stop</button>
+  <button id="btnPerm">1) Kamera icazəsi ver</button>
+  <button id="btnStart">2) Scan başla</button>
+  <button id="btnStop" style="display:none;">Stop</button>
 
 <script>
+  // ✅ Sənin Apps Script URL
   const APPS_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbwP1w4cSWeKOZKMUvVyQA7dCjI-XRK9xSCULMkr0gGZYCkoyQjst0Eas6yzqhkOaBSpjQ/exec";
 
   const operatorEl = document.getElementById("operator");
   const videoEl = document.getElementById("video");
   const statusEl = document.getElementById("status");
-  const startBtn = document.getElementById("start");
-  const stopBtn  = document.getElementById("stop");
-
-  operatorEl.value = localStorage.getItem("operator") || "";
-  operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
+  const debugEl  = document.getElementById("debug");
+  const btnPerm  = document.getElementById("btnPerm");
+  const btnStart = document.getElementById("btnStart");
+  const btnStop  = document.getElementById("btnStop");
 
   function setStatus(msg, cls="") {
     statusEl.className = "small " + cls;
     statusEl.textContent = msg;
   }
+  function dbg(msg) {
+    debugEl.textContent = msg + "\n" + debugEl.textContent;
+    console.log(msg);
+  }
 
+  // Operator yadda saxla
+  operatorEl.value = localStorage.getItem("operator") || "";
+  operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
+
+  // ZXing hintlər (yalnız 1D + try harder)
   const hints = new Map();
   hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
     ZXing.BarcodeFormat.CODE_128,
@@ -62,6 +76,7 @@
   const reader = new ZXing.BrowserMultiFormatContinuousReader(hints);
 
   let scanning = false;
+  let stream = null;
   let last = "", lastAt = 0;
 
   async function postScan(barcode, operator) {
@@ -74,7 +89,43 @@
     if (!data.ok) throw new Error(data.error || "Xəta");
   }
 
-  startBtn.onclick = async () => {
+  async function requestCameraPermission() {
+    // Bu funksiya kameranı “zorla soruşur” və xətanı ekranda göstərir.
+    dbg("Permission request başladı...");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Bu brauzer kamera API-ni dəstəkləmir. Chrome/Safari istifadə et.");
+    }
+    const s = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+    // İcazə alındı, stream-i bağlayırıq (scan zamanı yenidən açacağıq)
+    s.getTracks().forEach(t => t.stop());
+    dbg("Permission OK ✅");
+  }
+
+  btnPerm.onclick = async () => {
+    debugEl.textContent = "";
+    setStatus("Kamera icazəsi soruşulur...", "");
+    try {
+      await requestCameraPermission();
+      setStatus("İcazə verildi ✅ İndi 'Scan başla' bas.", "ok");
+    } catch (e) {
+      const name = e?.name ? e.name + " - " : "";
+      setStatus("Kamera icazəsi alınmadı ❌", "err");
+      dbg("KAMERA XƏTASI: " + name + (e.message || e));
+
+      // ən çox rastlanan səbəblər üçün ipucu:
+      dbg("İpucu:");
+      dbg("- Linki Telegram/WhatsApp içindən yox, mütləq Chrome/Safari-də aç (Open in browser).");
+      dbg("- Brauzerdə site üçün Camera=Allow et.");
+      dbg("- Kamera başqa app tərəfindən tutulubsa (Instagram/Camera), bağla.");
+    }
+  };
+
+  btnStart.onclick = async () => {
+    debugEl.textContent = "";
+
     const operator = operatorEl.value.trim();
     if (!operator) {
       setStatus("Operatoru yaz (məs: Guard-1).", "err");
@@ -82,63 +133,92 @@
       return;
     }
 
-    startBtn.disabled = true;
     setStatus("Kamera açılır...", "");
+    btnStart.disabled = true;
 
     try {
+      // Əvvəl stream-i biz açırıq (bəzən ZXing özü açanda blok olur)
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false
+      });
+      videoEl.srcObject = stream;
+      await videoEl.play();
+      dbg("Stream açıldı ✅");
+
       scanning = true;
-      stopBtn.style.display = "block";
+      btnStop.style.display = "block";
+      setStatus("Scan aktivdir. Barkodu kameraya göstər.", "");
 
-      await reader.decodeFromConstraints(
-        { audio:false, video:{ facingMode:{ ideal:"environment" } } },
-        videoEl,
-        async (result, err) => {
-          if (!scanning) return;
-          if (result) {
-            const code = String(result.getText ? result.getText() : result.text || "").trim();
-            if (!code) return;
+      // ZXing ilə video element üstündən continuous decode
+      const controls = await reader.decodeFromVideoElementContinuously(videoEl, async (result, err) => {
+        if (!scanning) return;
 
-            const now = Date.now();
-            if (code === last && (now - lastAt) < 1500) return;
-            last = code; lastAt = now;
+        if (result) {
+          const code = String(result.getText ? result.getText() : result.text || "").trim();
+          if (!code) return;
 
-            if (navigator.vibrate) navigator.vibrate(80);
+          const now = Date.now();
+          if (code === last && (now - lastAt) < 1500) return;
+          last = code; lastAt = now;
 
-            setStatus(`Oxundu: ${code} → göndərilir...`, "");
+          if (navigator.vibrate) navigator.vibrate(80);
 
-            try {
-              await postScan(code, operatorEl.value.trim());
-              setStatus(`Yazıldı ✅ ${code}`, "ok");
-            } catch (e) {
-              setStatus("POST Xəta ❌ " + e.message, "err");
-            }
+          setStatus(`Oxundu: ${code} → göndərilir...`, "");
+          try {
+            await postScan(code, operatorEl.value.trim());
+            setStatus(`Yazıldı ✅ ${code}`, "ok");
+          } catch (e) {
+            setStatus("POST Xəta ❌ " + (e.message || e), "err");
+            dbg("POST XƏTASI: " + (e.message || e));
           }
         }
-      );
+      });
 
-      setStatus("Scan aktivdir. Barkodu kameraya göstər.", "");
+      // stop üçün saxlayırıq
+      btnStop._zxingControls = controls;
+
     } catch (e) {
-      setStatus("Kamera/scan xətası: " + (e.message || e), "err");
-      startBtn.disabled = false;
-      stopBtn.style.display = "none";
+      const name = e?.name ? e.name + " - " : "";
+      setStatus("Kamera açılmadı ❌ " + name + (e.message || e), "err");
+      dbg("KAMERA XƏTASI: " + name + (e.message || e));
+
+      dbg("İpucu:");
+      dbg("- Open in Chrome/Safari (in-app browser yox).");
+      dbg("- Site settings → Camera → Allow.");
+      dbg("- Kamera istifadə edən app-ları bağla.");
+
+      btnStart.disabled = false;
+      btnStop.style.display = "none";
       scanning = false;
-      try { reader.reset(); } catch {}
+
+      try { if (stream) stream.getTracks().forEach(t=>t.stop()); } catch {}
+      stream = null;
+      videoEl.srcObject = null;
     }
   };
 
-  stopBtn.onclick = () => {
+  btnStop.onclick = async () => {
     scanning = false;
-    try { reader.reset(); } catch {}
+
     try {
-      if (videoEl.srcObject) videoEl.srcObject.getTracks().forEach(t=>t.stop());
-      videoEl.srcObject = null;
+      // ZXing stop
+      if (btnStop._zxingControls?.stop) btnStop._zxingControls.stop();
     } catch {}
-    stopBtn.style.display = "none";
-    startBtn.disabled = false;
+
+    try { reader.reset(); } catch {}
+
+    try { if (stream) stream.getTracks().forEach(t=>t.stop()); } catch {}
+    stream = null;
+    videoEl.srcObject = null;
+
+    btnStop.style.display = "none";
+    btnStart.disabled = false;
     setStatus("Dayandırıldı.", "");
+    dbg("Stop edildi.");
   };
 
-  setStatus("Hazırdır. Operator yaz → 'Scan başla' bas.", "");
+  setStatus("1) 'Kamera icazəsi ver' bas → sonra 2) 'Scan başla'", "");
 </script>
 </body>
 </html>
