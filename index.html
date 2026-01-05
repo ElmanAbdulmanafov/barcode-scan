@@ -6,14 +6,11 @@
     body{font-family:Arial;margin:16px}
     video{width:100%;border-radius:14px;background:#000}
     input,button{font-size:18px;padding:12px;width:100%;margin:8px 0;box-sizing:border-box}
-    .small{font-size:13px;opacity:.9}
+    .small{font-size:13px;opacity:.95}
     .ok{color:#0a7}.err{color:#c00}
     .box{padding:12px;border:1px solid #ddd;border-radius:14px}
     pre{white-space:pre-wrap;word-break:break-word}
   </style>
-
-  <!-- ZXing (1D barcode üçün güclü) -->
-  <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
 </head>
 <body>
   <h2>1D Barcode Scanner</h2>
@@ -35,7 +32,7 @@
   <button id="btnStop" style="display:none;">Stop</button>
 
 <script>
-  // ✅ Sənin Apps Script URL
+  // ✅ Apps Script URL-in
   const APPS_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbwP1w4cSWeKOZKMUvVyQA7dCjI-XRK9xSCULMkr0gGZYCkoyQjst0Eas6yzqhkOaBSpjQ/exec";
 
@@ -56,28 +53,82 @@
     console.log(msg);
   }
 
-  // Operator yadda saxla
+  // Operatoru yadda saxla
   operatorEl.value = localStorage.getItem("operator") || "";
   operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
 
-  // ZXing hintlər (yalnız 1D + try harder)
-  const hints = new Map();
-  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-    ZXing.BarcodeFormat.CODE_128,
-    ZXing.BarcodeFormat.CODE_39,
-    ZXing.BarcodeFormat.EAN_13,
-    ZXing.BarcodeFormat.EAN_8,
-    ZXing.BarcodeFormat.UPC_A,
-    ZXing.BarcodeFormat.UPC_E,
-    ZXing.BarcodeFormat.ITF
-  ]);
-  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+  // ========== 1) Kamera permission testi (ZXing-dən asılı deyil) ==========
+  async function requestCameraPermission() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Bu brauzer kamera API-ni dəstəkləmir. Chrome/Safari istifadə et.");
+    }
+    const s = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" } },
+      audio: false
+    });
+    s.getTracks().forEach(t => t.stop());
+  }
 
-  const reader = new ZXing.BrowserMultiFormatContinuousReader(hints);
+  btnPerm.onclick = async () => {
+    debugEl.textContent = "";
+    setStatus("Kamera icazəsi soruşulur...", "");
+    try {
+      await requestCameraPermission();
+      setStatus("İcazə verildi ✅ İndi 'Scan başla' bas.", "ok");
+      dbg("Permission OK ✅");
+    } catch (e) {
+      const name = e?.name ? (e.name + " - ") : "";
+      setStatus("Kamera icazəsi alınmadı ❌", "err");
+      dbg("KAMERA XƏTASI: " + name + (e.message || e));
+      dbg("İpucu: Linki Telegram/WhatsApp içindən yox, mütləq Chrome/Safari-də aç (Open in browser).");
+      dbg("İpucu: Chrome/Safari site settings → Camera → Allow.");
+      dbg("İpucu: Kamera başqa app tərəfindən tutulubsa (Camera/Instagram), hamısını bağla.");
+    }
+  };
 
+  // ========== 2) ZXing dinamik yükləmə (unpkg blokdursa jsDelivr) ==========
+  function loadScript(url) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = url;
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error("Script load failed: " + url));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function ensureZXingLoaded() {
+    if (window.ZXing) return;
+
+    const urls = [
+      // 1) jsDelivr (adətən daha çox açılır)
+      "https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js",
+      // 2) unpkg fallback
+      "https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"
+    ];
+
+    for (const u of urls) {
+      try {
+        dbg("ZXing yüklənir: " + u);
+        await loadScript(u);
+        if (window.ZXing) {
+          dbg("ZXing OK ✅");
+          return;
+        }
+      } catch (e) {
+        dbg("ZXing FAIL ❌ " + e.message);
+      }
+    }
+    throw new Error("ZXing yüklənmədi. Şəbəkə/CDN blok ola bilər (firewall).");
+  }
+
+  // ========== 3) Scan + POST ==========
   let scanning = false;
   let stream = null;
   let last = "", lastAt = 0;
+  let codeReader = null;
+  let controls = null;
 
   async function postScan(barcode, operator) {
     const res = await fetch(APPS_SCRIPT_URL, {
@@ -89,39 +140,14 @@
     if (!data.ok) throw new Error(data.error || "Xəta");
   }
 
-  async function requestCameraPermission() {
-    // Bu funksiya kameranı “zorla soruşur” və xətanı ekranda göstərir.
-    dbg("Permission request başladı...");
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Bu brauzer kamera API-ni dəstəkləmir. Chrome/Safari istifadə et.");
-    }
-    const s = await navigator.mediaDevices.getUserMedia({
+  async function openStream() {
+    stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: { ideal: "environment" } },
       audio: false
     });
-    // İcazə alındı, stream-i bağlayırıq (scan zamanı yenidən açacağıq)
-    s.getTracks().forEach(t => t.stop());
-    dbg("Permission OK ✅");
+    videoEl.srcObject = stream;
+    await videoEl.play();
   }
-
-  btnPerm.onclick = async () => {
-    debugEl.textContent = "";
-    setStatus("Kamera icazəsi soruşulur...", "");
-    try {
-      await requestCameraPermission();
-      setStatus("İcazə verildi ✅ İndi 'Scan başla' bas.", "ok");
-    } catch (e) {
-      const name = e?.name ? e.name + " - " : "";
-      setStatus("Kamera icazəsi alınmadı ❌", "err");
-      dbg("KAMERA XƏTASI: " + name + (e.message || e));
-
-      // ən çox rastlanan səbəblər üçün ipucu:
-      dbg("İpucu:");
-      dbg("- Linki Telegram/WhatsApp içindən yox, mütləq Chrome/Safari-də aç (Open in browser).");
-      dbg("- Brauzerdə site üçün Camera=Allow et.");
-      dbg("- Kamera başqa app tərəfindən tutulubsa (Instagram/Camera), bağla.");
-    }
-  };
 
   btnStart.onclick = async () => {
     debugEl.textContent = "";
@@ -133,27 +159,41 @@
       return;
     }
 
-    setStatus("Kamera açılır...", "");
     btnStart.disabled = true;
+    setStatus("Hazırlanır...", "");
 
     try {
-      // Əvvəl stream-i biz açırıq (bəzən ZXing özü açanda blok olur)
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false
-      });
-      videoEl.srcObject = stream;
-      await videoEl.play();
+      // Kamera stream
+      setStatus("Kamera açılır...", "");
+      await openStream();
       dbg("Stream açıldı ✅");
+
+      // ZXing yüklə
+      setStatus("Scanner yüklənir...", "");
+      await ensureZXingLoaded();
+
+      // ZXing reader qur
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.UPC_A,
+        ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.ITF
+      ]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+      codeReader = new ZXing.BrowserMultiFormatContinuousReader(hints);
 
       scanning = true;
       btnStop.style.display = "block";
       setStatus("Scan aktivdir. Barkodu kameraya göstər.", "");
 
-      // ZXing ilə video element üstündən continuous decode
-      const controls = await reader.decodeFromVideoElementContinuously(videoEl, async (result, err) => {
+      // Continuous decode
+      controls = await codeReader.decodeFromVideoElementContinuously(videoEl, async (result, err) => {
         if (!scanning) return;
-
         if (result) {
           const code = String(result.getText ? result.getText() : result.text || "").trim();
           if (!code) return;
@@ -175,40 +215,31 @@
         }
       });
 
-      // stop üçün saxlayırıq
-      btnStop._zxingControls = controls;
-
     } catch (e) {
-      const name = e?.name ? e.name + " - " : "";
-      setStatus("Kamera açılmadı ❌ " + name + (e.message || e), "err");
-      dbg("KAMERA XƏTASI: " + name + (e.message || e));
+      const name = e?.name ? (e.name + " - ") : "";
+      setStatus("Xəta ❌ " + name + (e.message || e), "err");
+      dbg("START XƏTASI: " + name + (e.message || e));
 
-      dbg("İpucu:");
-      dbg("- Open in Chrome/Safari (in-app browser yox).");
-      dbg("- Site settings → Camera → Allow.");
-      dbg("- Kamera istifadə edən app-ları bağla.");
-
-      btnStart.disabled = false;
-      btnStop.style.display = "none";
+      // təmizlə
       scanning = false;
+      btnStop.style.display = "none";
+      btnStart.disabled = false;
 
-      try { if (stream) stream.getTracks().forEach(t=>t.stop()); } catch {}
+      try { if (controls?.stop) controls.stop(); } catch {}
+      try { if (codeReader?.reset) codeReader.reset(); } catch {}
+      try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch {}
       stream = null;
       videoEl.srcObject = null;
     }
   };
 
-  btnStop.onclick = async () => {
+  btnStop.onclick = () => {
     scanning = false;
 
-    try {
-      // ZXing stop
-      if (btnStop._zxingControls?.stop) btnStop._zxingControls.stop();
-    } catch {}
+    try { if (controls?.stop) controls.stop(); } catch {}
+    try { if (codeReader?.reset) codeReader.reset(); } catch {}
 
-    try { reader.reset(); } catch {}
-
-    try { if (stream) stream.getTracks().forEach(t=>t.stop()); } catch {}
+    try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch {}
     stream = null;
     videoEl.srcObject = null;
 
