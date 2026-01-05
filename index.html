@@ -4,417 +4,185 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"/>
   <style>
     :root{
-      --bg:#0b0f14;
-      --card:#121822;
-      --muted:#9fb0c3;
-      --text:#e9f0f7;
-      --ok:#19c37d;
-      --err:#ff4d4f;
-      --btn:#1b2635;
-      --btn2:#223149;
-      --border:rgba(255,255,255,.08);
+      --bg:#0b0f14; --card:#121822; --muted:#9fb0c3; --text:#e9f0f7;
+      --ok:#19c37d; --err:#ff4d4f; --border:rgba(255,255,255,.08);
+      --btn:#223149;
     }
     *{box-sizing:border-box}
-    body{
-      margin:0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      background:linear-gradient(180deg, #0b0f14 0%, #0a0d12 100%);
-      color:var(--text);
-    }
-    .wrap{
-      max-width:520px;
-      margin:0 auto;
-      padding:14px 14px 24px;
-    }
-    .title{
-      font-size:20px;
-      font-weight:700;
-      letter-spacing:.2px;
-      margin:6px 0 10px;
-    }
-    .sub{
-      font-size:13px;
-      color:var(--muted);
-      margin:0 0 12px;
-      line-height:1.35;
-    }
-    .card{
-      background:var(--card);
-      border:1px solid var(--border);
-      border-radius:16px;
-      padding:12px;
-      margin:10px 0;
-      box-shadow: 0 10px 30px rgba(0,0,0,.25);
-    }
-    label{
-      font-size:12px;
-      color:var(--muted);
-      display:block;
-      margin:0 0 6px;
-    }
-    input{
-      width:100%;
-      padding:12px 12px;
-      border-radius:12px;
-      border:1px solid var(--border);
-      background:#0e1420;
-      color:var(--text);
-      font-size:16px;
-      outline:none;
-    }
-    input::placeholder{color:#6f7f92}
-    .row{
-      display:flex;
-      gap:10px;
-      margin-top:10px;
-    }
-    button{
-      width:100%;
-      border:1px solid var(--border);
-      background:var(--btn);
-      color:var(--text);
-      padding:12px;
-      font-size:16px;
-      border-radius:12px;
-      cursor:pointer;
-      transition:.15s;
-      user-select:none;
-      -webkit-tap-highlight-color: transparent;
-    }
-    button:active{transform:scale(.99)}
-    button.primary{background:var(--btn2)}
-    button.ok{background:rgba(25,195,125,.15); border-color:rgba(25,195,125,.35)}
-    button.danger{background:rgba(255,77,79,.12); border-color:rgba(255,77,79,.35)}
-    button:disabled{opacity:.55; cursor:not-allowed}
-
-    /* Kamera pəncərəsi kompakt */
-    #viewport{
-      width:100%;
-      border-radius:14px;
-      overflow:hidden;
-      background:#000;
-      border:1px solid var(--border);
-      height:220px;          /* kompakt hündürlük */
-      position:relative;
-      display:none;          /* scan başlayana qədər gizli */
-    }
-    /* Quagga video/canvas həmişə 100% */
-    #viewport video, #viewport canvas{
-      width:100% !important;
-      height:100% !important;
-      object-fit:cover !important;
-      display:block;
-    }
-
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      padding:10px 12px;
-      border-radius:14px;
-      border:1px solid var(--border);
-      background:#0e1420;
-      font-size:13px;
-      color:var(--muted);
-      margin-top:10px;
-      line-height:1.2;
-      width:100%;
-    }
-    .pill.ok{color:#c8ffe6; border-color:rgba(25,195,125,.35); background:rgba(25,195,125,.12)}
-    .pill.err{color:#ffe3e3; border-color:rgba(255,77,79,.35); background:rgba(255,77,79,.10)}
-    .code{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      color:var(--text);
-      font-size:14px;
-    }
-
-    .mini{
-      display:flex;
-      gap:10px;
-      margin-top:10px;
-    }
-    .mini button{padding:10px; font-size:14px}
-    .hint{
-      font-size:12px;
-      color:var(--muted);
-      margin-top:10px;
-      line-height:1.35;
-    }
-
-    /* Debug gizli (lazım olsa açarıq) */
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    .wrap{max-width:520px;margin:0 auto;padding:14px}
+    .title{font-size:20px;font-weight:800;margin:6px 0 6px}
+    .sub{font-size:13px;color:var(--muted);margin:0 0 12px;line-height:1.35}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px;margin:10px 0}
+    label{font-size:12px;color:var(--muted);display:block;margin:0 0 6px}
+    input{width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);background:#0e1420;color:var(--text);font-size:16px;outline:none}
+    .row{display:flex;gap:10px;margin-top:10px}
+    button{width:100%;border:1px solid var(--border);background:var(--btn);color:var(--text);padding:12px;font-size:16px;border-radius:12px;cursor:pointer}
+    button:disabled{opacity:.55;cursor:not-allowed}
+    #viewport{width:100%;height:220px;border-radius:14px;overflow:hidden;border:1px solid var(--border);background:#000;display:none}
+    #viewport video,#viewport canvas{width:100%!important;height:100%!important;object-fit:cover!important;display:block}
+    .pill{display:none;margin-top:10px;padding:10px 12px;border-radius:14px;border:1px solid var(--border);background:#0e1420;font-size:13px;line-height:1.25}
+    .pill.ok{display:block;border-color:rgba(25,195,125,.35);background:rgba(25,195,125,.12);color:#c8ffe6}
+    .pill.err{display:block;border-color:rgba(255,77,79,.35);background:rgba(255,77,79,.10);color:#ffe3e3}
+    .pill.info{display:block;color:var(--muted)}
+    .code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text)}
     details{margin-top:10px}
-    pre{
-      white-space:pre-wrap;
-      word-break:break-word;
-      font-size:12px;
-      color:#c7d4e2;
-      background:#0e1420;
-      border:1px solid var(--border);
-      padding:10px;
-      border-radius:12px;
-      margin:8px 0 0;
-      max-height:180px;
-      overflow:auto;
-    }
+    pre{white-space:pre-wrap;word-break:break-word;font-size:12px;color:#c7d4e2;background:#0e1420;border:1px solid var(--border);padding:10px;border-radius:12px;margin:8px 0 0;max-height:160px;overflow:auto}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <div class="title">Barcode Scan</div>
+    <div class="title">LOT Barcode Scan</div>
     <p class="sub">
-      Yalnız <b>2026 / 2027 / 2028</b> ilə başlayan barkodlar qəbul olunur.
-      Barkod tapılan kimi kamera avtomatik bağlanacaq.
+      Yalnız <b>2026 / 2027 / 2028</b> ilə başlayan kodlar qəbul edilir.
+      Saxta oxunuşların qarşısı üçün kod <b>3 dəfə ardıcıl eyni</b> gəlməlidir.
     </p>
 
     <div class="card">
       <label>Operator</label>
-      <input id="operator" placeholder="məs: Guard-1 / Elman" autocomplete="off" />
+      <input id="operator" placeholder="məs: Guard-1 / Elman" autocomplete="off"/>
+
       <div class="row">
-        <button id="btnStart" class="primary">Scan başla</button>
-        <button id="btnStop" class="danger" style="display:none;">Stop</button>
+        <button id="btnStart">Scan başla</button>
+        <button id="btnStop" style="display:none;background:rgba(255,77,79,.12)">Stop</button>
       </div>
 
       <div id="viewport"></div>
 
-      <div id="status" class="pill" style="display:none;"></div>
-
-      <div class="mini">
-        <button id="btnTorch" disabled>🔦 Torch</button>
-        <button id="btnRefocus" disabled>🎯 Refocus</button>
-      </div>
-
-      <label style="margin-top:10px;">Zoom</label>
-      <input id="zoom" type="range" min="1" max="1" step="0.1" value="1" disabled />
-
-      <div class="hint">
-        Stabil oxuma üçün: 20–30 sm məsafə, parıltı varsa kağızı azca əy, lazım olsa Torch + Zoom istifadə et.
-      </div>
+      <div id="status" class="pill info"></div>
 
       <details>
-        <summary class="small">Debug</summary>
+        <summary style="color:var(--muted);font-size:13px;">Debug</summary>
         <pre id="debug"></pre>
       </details>
     </div>
   </div>
 
-  <!-- Quagga2 -->
   <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
-
   <script>
-    // ====== APPS SCRIPT URL ======
     const APPS_SCRIPT_URL =
       "https://script.google.com/macros/s/AKfycbyMlTDXh-2DRVetIsrPm3KIh2_9J9sWOMntcLl1ADgKjfumlIj3cGaYI2i7ht4v2qHr7w/exec";
 
-    // ====== UI ======
     const operatorEl = document.getElementById("operator");
     const viewportEl = document.getElementById("viewport");
     const statusEl = document.getElementById("status");
     const debugEl = document.getElementById("debug");
     const btnStart = document.getElementById("btnStart");
-    const btnStop = document.getElementById("btnStop");
-    const btnTorch = document.getElementById("btnTorch");
-    const btnRefocus = document.getElementById("btnRefocus");
-    const zoomEl = document.getElementById("zoom");
+    const btnStop  = document.getElementById("btnStop");
 
-    function dbg(msg){
-      debugEl.textContent = msg + "\n" + debugEl.textContent;
-      console.log(msg);
+    function dbg(msg){ debugEl.textContent = msg + "\n" + debugEl.textContent; console.log(msg); }
+
+    function status(type, html){
+      statusEl.className = "pill " + (type || "info");
+      statusEl.innerHTML = html;
     }
 
-    function showStatus(type, msg){
-      statusEl.style.display = "inline-flex";
-      statusEl.className = "pill " + (type || "");
-      statusEl.innerHTML = msg;
-    }
-
-    function hideStatus(){
-      statusEl.style.display = "none";
-      statusEl.className = "pill";
-      statusEl.textContent = "";
-    }
-
-    // Operator yadda saxla
     operatorEl.value = localStorage.getItem("operator") || "";
     operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
 
-    // ====== Filter: yalnız 2026/2027/2028 və rəqəm ======
-    function isAllowedBarcode(code){
+    // --- FILTER: yalnız 2026/2027/2028 və yalnız rəqəm
+    function isAllowed(code){
       if (!/^\d+$/.test(code)) return false;
       return code.startsWith("2026") || code.startsWith("2027") || code.startsWith("2028");
     }
 
-    // ====== POST ======
+    // --- POST
     async function postScan(barcode, operator){
       const body = new URLSearchParams({ barcode, operator });
-
       const res = await fetch(APPS_SCRIPT_URL, {
-        method: "POST",
-        headers: { "Content-Type":"application/x-www-form-urlencoded;charset=UTF-8" },
+        method:"POST",
+        headers:{ "Content-Type":"application/x-www-form-urlencoded;charset=UTF-8" },
         body
       });
-
       const text = await res.text();
-      dbg("POST RESP ("+res.status+"): " + text.slice(0, 200));
+      dbg("POST ("+res.status+"): " + text.slice(0,200));
+      if (!res.ok) throw new Error("HTTP "+res.status+": "+text);
 
-      if (!res.ok) throw new Error("HTTP " + res.status + ": " + text);
-
-      // JSON qaytarırsa yoxla, yoxdursa OK text qəbul et
-      try {
+      // JSON ola bilər, text ola bilər
+      try{
         const data = JSON.parse(text);
         if (data && data.ok === false) throw new Error(data.error || "Server error");
-      } catch {
-        if (!text.trim().toUpperCase().startsWith("OK") && !text.includes('"ok":true')) {
-          throw new Error("Server response: " + text);
-        }
+      }catch{
+        if (!text.trim().toUpperCase().startsWith("OK") && !text.includes('"ok":true'))
+          throw new Error("Server response: "+text);
       }
     }
 
-    // ====== Camera controls (torch/zoom/refocus) ======
-    let track = null;
-    let torchOn = false;
+    // --- anti-false-positive parametrlər
+    const REQUIRED_SAME_HITS = 3;      // 3 dəfə ardıcıl eyni kod
+    const MAX_AVG_ERROR = 0.20;        // decodedCodes error ortalaması (0-1). aşağı daha yaxşı.
+    const MIN_DECODED_PARTS = 4;       // nə qədər çox decodedCodes olarsa, o qədər etibarlı (praktik filter)
 
-    async function initTrackControls(){
-      try{
-        const video = viewportEl.querySelector("video");
-        const stream = video && video.srcObject;
-        if (!stream) return;
-
-        track = stream.getVideoTracks()[0];
-        const caps = track.getCapabilities ? track.getCapabilities() : {};
-        dbg("Caps: " + JSON.stringify({
-          torch: !!caps.torch,
-          zoom: caps.zoom ? {min:caps.zoom.min, max:caps.zoom.max} : null,
-          focusMode: caps.focusMode || null
-        }));
-
-        btnTorch.disabled = !caps.torch;
-
-        if (caps.zoom){
-          zoomEl.disabled = false;
-          zoomEl.min = caps.zoom.min;
-          zoomEl.max = caps.zoom.max;
-          zoomEl.step = 0.1;
-          // default 2x (mümkünsə)
-          zoomEl.value = Math.min(Math.max(2.0, zoomEl.min), zoomEl.max);
-          await setZoom(zoomEl.value);
-        } else {
-          zoomEl.disabled = true;
-        }
-
-        btnRefocus.disabled = !(caps.focusMode && caps.focusMode.length);
-      } catch(e){
-        dbg("Track init error: " + (e.message || e));
-      }
-    }
-
-    async function setTorch(on){
-      if (!track?.applyConstraints) return;
-      await track.applyConstraints({ advanced:[{ torch: on }] });
-      torchOn = on;
-      dbg("Torch: " + (on ? "ON" : "OFF"));
-    }
-
-    async function setZoom(val){
-      if (!track?.applyConstraints) return;
-      await track.applyConstraints({ advanced:[{ zoom: Number(val) }] });
-      dbg("Zoom set: " + val);
-    }
-
-    async function refocus(){
-      if (!track?.applyConstraints) return;
-      await track.applyConstraints({ advanced:[{ focusMode: "continuous" }] });
-      dbg("Refocus: continuous");
-    }
-
-    btnTorch.onclick = async () => { try{ await setTorch(!torchOn); } catch(e){ dbg("Torch error: "+(e.message||e)); } };
-    zoomEl.oninput = async () => { try{ await setZoom(zoomEl.value); } catch(e){ dbg("Zoom error: "+(e.message||e)); } };
-    btnRefocus.onclick = async () => { try{ await refocus(); } catch(e){ dbg("Refocus error: "+(e.message||e)); } };
-
-    // ====== Scanner logic ======
     let running = false;
-
-    // dalbadal eyni barkodu yazmasın
     let lastAccepted = "";
+    let hitMap = new Map(); // code -> consecutive hits
+    let lastSeenCode = "";
 
-    function stopScannerUI(){
+    function resetHits(){
+      hitMap.clear();
+      lastSeenCode = "";
+    }
+
+    function stopScanner(){
       running = false;
-      try{ Quagga.stop(); } catch {}
-
+      try{ Quagga.stop(); }catch{}
       viewportEl.style.display = "none";
       btnStart.disabled = false;
       btnStop.style.display = "none";
-
-      btnTorch.disabled = true;
-      btnRefocus.disabled = true;
-      zoomEl.disabled = true;
-      track = null;
-
-      // Torch-u söndür (əgər açıqdırsa)
-      torchOn = false;
     }
 
     btnStop.onclick = () => {
-      stopScannerUI();
-      showStatus("", "Dayandırıldı.");
+      stopScanner();
+      status("info", "Dayandırıldı.");
+      resetHits();
     };
 
-    btnStart.onclick = async () => {
+    btnStart.onclick = () => {
       const operator = operatorEl.value.trim();
       if (!operator){
-        showStatus("err", "❌ Operatoru yaz (məs: Guard-1).");
+        status("err", "❌ Operatoru yaz (məs: Guard-1).");
         operatorEl.focus();
         return;
       }
 
-      hideStatus();
       debugEl.textContent = "";
+      resetHits();
 
       btnStart.disabled = true;
       btnStop.style.display = "block";
       viewportEl.style.display = "block";
-      showStatus("", "Kamera açılır...");
+      status("info", "Kamera açılır... Barkodu mərkəzdə saxla.");
 
-      // Quagga init (kompakt scan zonası)
       Quagga.init({
         inputStream: {
-          type: "LiveStream",
+          type:"LiveStream",
           target: viewportEl,
-          constraints: {
-            facingMode: "environment",
-            width: { ideal: 1280 },
+          constraints:{
+            facingMode:"environment",
+            width:{ ideal: 1280 },
             height:{ ideal: 720 }
           },
-          area: {
-            top: "28%",
-            right: "10%",
-            left: "10%",
-            bottom: "28%"
-          }
+          // Mərkəz zonası: kənarı oxuma, false positive azalır
+          area:{ top:"33%", right:"12%", left:"12%", bottom:"33%" }
         },
-        locator: {
-          patchSize: "large",
-          halfSample: false
-        },
-        locate: true,
-        numOfWorkers: 2,
-        frequency: 10,
-        decoder: {
-          readers: [
+        locator:{ patchSize:"large", halfSample:false },
+        locate:true,
+        numOfWorkers:2,
+        frequency:10,
+        decoder:{
+          // ⛔ EAN/UPC-ni bağlayırıq: false positive çox verir
+          // ✅ CODE39 + CODE128: LOT tipinə daha uyğun
+          readers:[
             "code_39_reader",
             "code_128_reader",
-            "ean_reader",
-            "ean_8_reader",
-            "upc_reader",
-            "upc_e_reader",
-            "i2of5_reader",
-            "codabar_reader",
-            "code_93_reader"
+            "code_93_reader",
+            "i2of5_reader"
           ]
         }
       }, (err) => {
         if (err){
           dbg("INIT ERROR: " + err);
-          showStatus("err", "❌ Kamera/scanner açılmadı: " + err);
+          status("err", "❌ Kamera/scanner açılmadı: " + err);
           btnStart.disabled = false;
           btnStop.style.display = "none";
           viewportEl.style.display = "none";
@@ -422,22 +190,8 @@
         }
         Quagga.start();
         running = true;
-        showStatus("", "Scan aktivdir. Barkodu mərkəzdə saxla.");
-        dbg("Quagga started ✅");
-        setTimeout(initTrackControls, 700);
-      });
-
-      // vizual box (lazım olsa)
-      Quagga.onProcessed((result) => {
-        if (!running) return;
-        const ctx = Quagga.canvas.ctx.overlay;
-        const canvas = Quagga.canvas.dom.overlay;
-        if (!ctx || !canvas) return;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        if (result && result.box) {
-          Quagga.ImageDebug.drawPath(result.box, {x:0, y:1}, ctx, { color: "rgba(0,255,140,0.55)", lineWidth: 3 });
-        }
+        status("info", "Scan aktivdir ✅ Barkodu mərkəzdə saxla (20–30 sm).");
+        dbg("Started ✅");
       });
 
       Quagga.onDetected(async (data) => {
@@ -446,39 +200,65 @@
         const code = data?.codeResult?.code ? String(data.codeResult.code).trim() : "";
         if (!code) return;
 
-        // Filter: yalnız 2026/2027/2028
-        if (!isAllowedBarcode(code)) {
-          dbg("SKIP (not allowed): " + code);
+        // 1) prefix filter
+        if (!isAllowed(code)) { dbg("SKIP prefix: " + code); return; }
+
+        // 2) quality filter (error)
+        const parts = data?.codeResult?.decodedCodes || [];
+        const errors = parts
+          .map(p => (typeof p.error === "number" ? p.error : null))
+          .filter(v => v !== null);
+
+        // bəzi cihazlarda decodedCodes boş ola bilər, onda bu filteri çox sərt etməyək
+        if (errors.length >= MIN_DECODED_PARTS){
+          const avgErr = errors.reduce((a,b)=>a+b,0) / errors.length;
+          if (avgErr > MAX_AVG_ERROR) {
+            dbg("SKIP quality avgErr=" + avgErr.toFixed(3) + " code=" + code);
+            return;
+          }
+        }
+
+        // 3) consecutive hit logic (3 dəfə ardıcıl eyni)
+        if (code !== lastSeenCode){
+          // yeni kod gəldi: sayğacı yenilə
+          lastSeenCode = code;
+          hitMap.set(code, 1);
+          status("info", "Tapıldı, təsdiqlənir... <span class='code'>" + code + "</span> (1/" + REQUIRED_SAME_HITS + ")");
+          return;
+        } else {
+          const n = (hitMap.get(code) || 0) + 1;
+          hitMap.set(code, n);
+          status("info", "Tapıldı, təsdiqlənir... <span class='code'>" + code + "</span> (" + n + "/" + REQUIRED_SAME_HITS + ")");
+          if (n < REQUIRED_SAME_HITS) return;
+        }
+
+        // 4) dalbadal eyni barkodu yazma
+        if (code === lastAccepted){
+          dbg("SKIP lastAccepted: " + code);
           return;
         }
 
-        // Dalbadal eyni olmasın
-        if (code === lastAccepted) {
-          dbg("SKIP (same as last): " + code);
-          return;
-        }
-
+        // qəbul
         lastAccepted = code;
+        dbg("ACCEPT ✅ " + code);
 
-        dbg("READ ✅ " + code);
         if (navigator.vibrate) navigator.vibrate(80);
 
-        // Tapdı -> kameranı dərhal bağla (UI rahat olsun)
-        stopScannerUI();
-        showStatus("ok", `✅ Oxundu: <span class="code">${code}</span><br><span style="color:var(--muted)">Göndərilir...</span>`);
+        // kamera bağlanır, user rahat görsün
+        stopScanner();
+        status("ok", "✅ Oxundu: <span class='code'>" + code + "</span><br><span style='color:#9fb0c3'>Göndərilir...</span>");
 
-        try {
+        try{
           await postScan(code, operatorEl.value.trim());
-          showStatus("ok", `✅ Oxundu və yazıldı: <span class="code">${code}</span>`);
-        } catch (e) {
-          showStatus("err", `❌ Yazılmadı: ${(e.message || e)}`);
+          status("ok", "✅ Oxundu və yazıldı: <span class='code'>" + code + "</span>");
+        }catch(e){
+          status("err", "❌ Yazılmadı: " + (e.message || e));
           dbg("POST ERROR: " + (e.message || e));
         }
       });
     };
 
-    // initial hint
-    showStatus("", "Operator yaz → Scan başla.");
+    status("info", "Operator yaz → Scan başla.");
   </script>
 </body>
 </html>
