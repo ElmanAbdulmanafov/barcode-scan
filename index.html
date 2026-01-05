@@ -31,7 +31,7 @@
 
     <div class="row">
       <button id="btnTorch" disabled>🔦 Torch ON/OFF</button>
-      <button id="btnAF" disabled>🎯 Refocus</button>
+      <button id="btnRefocus" disabled>🎯 Refocus</button>
     </div>
 
     <label class="small">Zoom</label>
@@ -44,9 +44,11 @@
   <button id="btnStop" style="display:none;">Stop</button>
 
 <script>
+  // ====== 1) SƏNİN APPS SCRIPT URL ======
   const APPS_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbwP1w4cSWeKOZKMUvVyQA7dCjI-XRK9xSCULMkr0gGZYCkoyQjst0Eas6yzqhkOaBSpjQ/exec";
 
+  // ====== UI ======
   const operatorEl = document.getElementById("operator");
   const videoEl = document.getElementById("video");
   const statusEl = document.getElementById("status");
@@ -54,7 +56,7 @@
   const btnStart = document.getElementById("btnStart");
   const btnStop  = document.getElementById("btnStop");
   const btnTorch = document.getElementById("btnTorch");
-  const btnAF    = document.getElementById("btnAF");
+  const btnRefocus = document.getElementById("btnRefocus");
   const zoomEl   = document.getElementById("zoom");
 
   function setStatus(msg, cls="") {
@@ -66,10 +68,11 @@
     console.log(msg);
   }
 
+  // operator yadda saxla
   operatorEl.value = localStorage.getItem("operator") || "";
   operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
 
-  // ZXing UMD load
+  // ====== 2) ZXing UMD yükləmə (jsDelivr -> unpkg) ======
   function loadScript(url) {
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
@@ -80,43 +83,52 @@
       document.head.appendChild(s);
     });
   }
+
   async function ensureZXingLoaded() {
     if (window.ZXing) return;
+
     const urls = [
       "https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js",
       "https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"
     ];
+
     for (const u of urls) {
-      try { dbg("ZXing yüklənir: " + u); await loadScript(u); if (window.ZXing){ dbg("ZXing OK ✅"); return; } }
-      catch(e){ dbg("ZXing FAIL ❌ " + e.message); }
+      try {
+        dbg("ZXing yüklənir: " + u);
+        await loadScript(u);
+        if (window.ZXing) { dbg("ZXing OK ✅"); return; }
+      } catch (e) {
+        dbg("ZXing FAIL ❌ " + e.message);
+      }
     }
     throw new Error("ZXing yüklənmədi (CDN blok ola bilər).");
   }
 
-async function postScan(barcode, operator) {
-  const body = new URLSearchParams({ barcode, operator });
+  // ====== 3) POST (urlencoded + TEXT response) ======
+  async function postScan(barcode, operator) {
+    const body = new URLSearchParams({ barcode, operator });
 
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-    body
-  });
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8"
+      },
+      body
+    });
 
-  const text = await res.text();
-  if (!text.startsWith("OK")) throw new Error(text || "POST error");
-}
+    const text = await res.text(); // ✅ JSON YOX!
+    dbg("POST RESP (" + res.status + "): " + text);
 
-  
+    if (!res.ok) throw new Error("HTTP " + res.status + ": " + text);
+    if (!text.trim().startsWith("OK")) throw new Error(text || "POST error");
+  }
 
+  // ====== 4) Kamera + Torch/Zoom ======
   let stream = null;
-  let reader = null;
-  let scanning = false;
-  let last = "", lastAt = 0;
-  let torchOn = false;
   let track = null;
+  let torchOn = false;
 
   async function openCameraStrong() {
-    // 1D barkod üçün daha yaxşı: yüksək keyfiyyət, arxa kamera
     stream = await navigator.mediaDevices.getUserMedia({
       audio:false,
       video:{
@@ -125,33 +137,36 @@ async function postScan(barcode, operator) {
         height:{ ideal: 1080 }
       }
     });
+
     videoEl.srcObject = stream;
     await videoEl.play();
 
     track = stream.getVideoTracks()[0];
     const caps = track.getCapabilities ? track.getCapabilities() : {};
+
     dbg("Caps: " + JSON.stringify({
       torch: !!caps.torch,
       zoom: caps.zoom ? {min:caps.zoom.min, max:caps.zoom.max} : null,
       focusMode: caps.focusMode || null
     }));
 
-    // Torch düyməsi
+    // torch
     btnTorch.disabled = !caps.torch;
 
-    // Zoom slider
+    // zoom
     if (caps.zoom) {
       zoomEl.disabled = false;
       zoomEl.min = caps.zoom.min;
       zoomEl.max = caps.zoom.max;
       zoomEl.step = 0.1;
-      zoomEl.value = Math.min(Math.max(zoomEl.value, zoomEl.min), zoomEl.max);
+      zoomEl.value = Math.min(Math.max(2.0, zoomEl.min), zoomEl.max); // default 2x
+      await setZoom(zoomEl.value);
     } else {
       zoomEl.disabled = true;
     }
 
-    // Refocus düyməsi
-    btnAF.disabled = !(caps.focusMode && caps.focusMode.length);
+    // refocus
+    btnRefocus.disabled = !(caps.focusMode && caps.focusMode.length);
   }
 
   async function setTorch(on) {
@@ -176,7 +191,6 @@ async function postScan(barcode, operator) {
   }
 
   async function refocus() {
-    // iOS/Android-da hər zaman işləməyə bilər, amma cəhd edək
     if (!track?.applyConstraints) return;
     try {
       await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
@@ -188,10 +202,16 @@ async function postScan(barcode, operator) {
 
   btnTorch.onclick = async () => { await setTorch(!torchOn); };
   zoomEl.oninput = async () => { await setZoom(zoomEl.value); };
-  btnAF.onclick = async () => { await refocus(); };
+  btnRefocus.onclick = async () => { await refocus(); };
+
+  // ====== 5) Scan (ZXing) ======
+  let reader = null;
+  let scanning = false;
+  let last = "", lastAt = 0;
 
   function stopAll() {
     scanning = false;
+
     try { if (reader) reader.reset(); } catch {}
     reader = null;
 
@@ -201,12 +221,13 @@ async function postScan(barcode, operator) {
     videoEl.srcObject = null;
 
     btnTorch.disabled = true;
-    btnAF.disabled = true;
+    btnRefocus.disabled = true;
     zoomEl.disabled = true;
   }
 
   btnStart.onclick = async () => {
     debugEl.textContent = "";
+
     const operator = operatorEl.value.trim();
     if (!operator) {
       setStatus("Operatoru yaz (məs: Guard-1).", "err");
@@ -221,9 +242,9 @@ async function postScan(barcode, operator) {
     try {
       await ensureZXingLoaded();
       await openCameraStrong();
-      setStatus("Kamera açıldı ✅ İndi barkodu göstər.", "ok");
+      setStatus("Scan aktivdir. Barkodu 20-30 sm tut.", "ok");
 
-      // Barkoduna görə (üstündə * var) CODE_39 mütləq olmalıdır
+      // Səndəki barkodda *...* var → CODE_39 mütləq əlavədir
       const hints = new Map();
       hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
         ZXing.BarcodeFormat.CODE_39,
@@ -241,7 +262,6 @@ async function postScan(barcode, operator) {
       reader = new ZXing.BrowserMultiFormatReader(hints);
 
       scanning = true;
-      setStatus("Scan aktivdir. Barkodu 20-30 sm tut, işığı düz seç.", "");
 
       await reader.decodeFromConstraints(
         { video:{ facingMode:{ ideal:"environment" } }, audio:false },
@@ -290,7 +310,7 @@ async function postScan(barcode, operator) {
     dbg("Stop edildi.");
   };
 
-  setStatus("Operator yaz → 'Scan başla' bas. Sonra 🔦 Torch və Zoom istifadə et.", "");
+  setStatus("Operator yaz → 'Scan başla'. Sonra 🔦 və Zoom istifadə et.", "");
 </script>
 </body>
 </html>
