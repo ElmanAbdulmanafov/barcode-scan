@@ -78,20 +78,23 @@
   operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
 
   // ====== POST (urlencoded + TEXT response) ======
-  async function postScan(barcode, operator) {
-    const body = new URLSearchParams({ barcode, operator });
+ async function postScan(barcode, operator) {
+  const body = new URLSearchParams({ barcode, operator });
 
-    const res = await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-      body
-    });
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+    body
+  });
 
-    const text = await res.text(); // JSON YOX
-    dbg("POST RESP (" + res.status + "): " + text);
+  const text = await res.text();
+  dbg("POST RESP (" + res.status + "): " + text);
 
-    if (!res.ok) throw new Error("HTTP " + res.status + ": " + text);
-    if (!text.trim().startsWith("OK")) throw new Error(text || "POST error");
+  let data;
+  try { data = JSON.parse(text); } catch { throw new Error("Server JSON qaytarmadı: " + text); }
+
+  if (!data.ok) throw new Error(data.error || "POST error");
+
   }
 
   // ====== Torch / Zoom / Focus (track capabilities) ======
