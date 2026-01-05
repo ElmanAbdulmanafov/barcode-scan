@@ -10,6 +10,10 @@
     .ok{color:#0a7}.err{color:#c00}
     .box{padding:12px;border:1px solid #ddd;border-radius:14px}
     pre{white-space:pre-wrap;word-break:break-word}
+    .row{display:flex;gap:10px}
+    .row button{width:50%}
+    label{display:block;margin-top:8px}
+    input[type="range"]{width:100%}
   </style>
 </head>
 <body>
@@ -24,6 +28,15 @@
   <div class="box" style="margin-top:12px;">
     <video id="video" playsinline></video>
     <div id="status" class="small"></div>
+
+    <div class="row">
+      <button id="btnTorch" disabled>🔦 Torch ON/OFF</button>
+      <button id="btnAF" disabled>🎯 Refocus</button>
+    </div>
+
+    <label class="small">Zoom</label>
+    <input id="zoom" type="range" min="1" max="1" step="0.1" value="1" disabled />
+
     <pre id="debug" class="small"></pre>
   </div>
 
@@ -40,6 +53,9 @@
   const debugEl  = document.getElementById("debug");
   const btnStart = document.getElementById("btnStart");
   const btnStop  = document.getElementById("btnStop");
+  const btnTorch = document.getElementById("btnTorch");
+  const btnAF    = document.getElementById("btnAF");
+  const zoomEl   = document.getElementById("zoom");
 
   function setStatus(msg, cls="") {
     statusEl.className = "small " + cls;
@@ -50,11 +66,10 @@
     console.log(msg);
   }
 
-  // operator yadda saxla
   operatorEl.value = localStorage.getItem("operator") || "";
   operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
 
-  // ZXing UMD load (jsDelivr -> unpkg)
+  // ZXing UMD load
   function loadScript(url) {
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
@@ -92,21 +107,83 @@
   let reader = null;
   let scanning = false;
   let last = "", lastAt = 0;
+  let torchOn = false;
+  let track = null;
 
-  async function startCameraStrong() {
-    // Daha keyfiyyətli frame üçün “ideal” parametrlər
-    const constraints = {
-      audio: false,
-      video: {
-        facingMode: { ideal: "environment" },
-        width:  { ideal: 1280 },
-        height: { ideal: 720 }
+  async function openCameraStrong() {
+    // 1D barkod üçün daha yaxşı: yüksək keyfiyyət, arxa kamera
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio:false,
+      video:{
+        facingMode:{ ideal:"environment" },
+        width:{ ideal: 1920 },
+        height:{ ideal: 1080 }
       }
-    };
-    stream = await navigator.mediaDevices.getUserMedia(constraints);
+    });
     videoEl.srcObject = stream;
     await videoEl.play();
+
+    track = stream.getVideoTracks()[0];
+    const caps = track.getCapabilities ? track.getCapabilities() : {};
+    dbg("Caps: " + JSON.stringify({
+      torch: !!caps.torch,
+      zoom: caps.zoom ? {min:caps.zoom.min, max:caps.zoom.max} : null,
+      focusMode: caps.focusMode || null
+    }));
+
+    // Torch düyməsi
+    btnTorch.disabled = !caps.torch;
+
+    // Zoom slider
+    if (caps.zoom) {
+      zoomEl.disabled = false;
+      zoomEl.min = caps.zoom.min;
+      zoomEl.max = caps.zoom.max;
+      zoomEl.step = 0.1;
+      zoomEl.value = Math.min(Math.max(zoomEl.value, zoomEl.min), zoomEl.max);
+    } else {
+      zoomEl.disabled = true;
+    }
+
+    // Refocus düyməsi
+    btnAF.disabled = !(caps.focusMode && caps.focusMode.length);
   }
+
+  async function setTorch(on) {
+    if (!track?.applyConstraints) return;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: on }] });
+      torchOn = on;
+      dbg("Torch: " + (on ? "ON" : "OFF"));
+    } catch(e) {
+      dbg("Torch error: " + (e.message || e));
+    }
+  }
+
+  async function setZoom(val) {
+    if (!track?.applyConstraints) return;
+    try {
+      await track.applyConstraints({ advanced: [{ zoom: Number(val) }] });
+      dbg("Zoom set: " + val);
+    } catch(e) {
+      dbg("Zoom error: " + (e.message || e));
+    }
+  }
+
+  async function refocus() {
+    // iOS/Android-da hər zaman işləməyə bilər, amma cəhd edək
+    if (!track?.applyConstraints) return;
+    try {
+      await track.applyConstraints({ advanced: [{ focusMode: "continuous" }] });
+      dbg("Refocus: continuous");
+    } catch(e) {
+      dbg("Refocus error: " + (e.message || e));
+    }
+  }
+
+  btnTorch.onclick = async () => { await setTorch(!torchOn); };
+  zoomEl.oninput = async () => { await setZoom(zoomEl.value); };
+  btnAF.onclick = async () => { await refocus(); };
 
   function stopAll() {
     scanning = false;
@@ -115,7 +192,12 @@
 
     try { if (stream) stream.getTracks().forEach(t => t.stop()); } catch {}
     stream = null;
+    track = null;
     videoEl.srcObject = null;
+
+    btnTorch.disabled = true;
+    btnAF.disabled = true;
+    zoomEl.disabled = true;
   }
 
   btnStart.onclick = async () => {
@@ -133,35 +215,31 @@
 
     try {
       await ensureZXingLoaded();
-      await startCameraStrong();
-      dbg("Kamera açıldı ✅");
+      await openCameraStrong();
+      setStatus("Kamera açıldı ✅ İndi barkodu göstər.", "ok");
 
-      // Formatları genişləndirək (bəzən digər 1D də olur)
+      // Barkoduna görə (üstündə * var) CODE_39 mütləq olmalıdır
       const hints = new Map();
       hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-        ZXing.BarcodeFormat.CODE_128,
         ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.CODE_128,
         ZXing.BarcodeFormat.CODE_93,
+        ZXing.BarcodeFormat.ITF,
+        ZXing.BarcodeFormat.CODABAR,
         ZXing.BarcodeFormat.EAN_13,
         ZXing.BarcodeFormat.EAN_8,
         ZXing.BarcodeFormat.UPC_A,
-        ZXing.BarcodeFormat.UPC_E,
-        ZXing.BarcodeFormat.ITF,
-        ZXing.BarcodeFormat.CODABAR,
-        ZXing.BarcodeFormat.RSS_14,
-        ZXing.BarcodeFormat.RSS_EXPANDED
+        ZXing.BarcodeFormat.UPC_E
       ]);
       hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
 
       reader = new ZXing.BrowserMultiFormatReader(hints);
 
       scanning = true;
-      setStatus("Scan aktivdir. Barkodu kameraya 15-25 sm məsafədə tut.", "");
+      setStatus("Scan aktivdir. Barkodu 20-30 sm tut, işığı düz seç.", "");
 
-      // ƏN STABİL üsul: constraints ilə decode
-      // (device list-ə ehtiyac yoxdur)
       await reader.decodeFromConstraints(
-        { video: { facingMode: { ideal: "environment" } }, audio: false },
+        { video:{ facingMode:{ ideal:"environment" } }, audio:false },
         videoEl,
         async (result, err) => {
           if (!scanning) return;
@@ -170,7 +248,6 @@
             const code = String(result.getText ? result.getText() : result.text || "").trim();
             if (!code) return;
 
-            // debug: oxunuşu göstər
             dbg("READ ✅ " + code);
 
             const now = Date.now();
@@ -187,8 +264,6 @@
               setStatus("POST Xəta ❌ " + (e.message || e), "err");
               dbg("POST XƏTASI: " + (e.message || e));
             }
-          } else if (err) {
-            // ZXing hər frame-də error verir, bunu spam etməyək.
           }
         }
       );
@@ -210,7 +285,7 @@
     dbg("Stop edildi.");
   };
 
-  setStatus("Operator yaz → 'Scan başla' bas.", "");
+  setStatus("Operator yaz → 'Scan başla' bas. Sonra 🔦 Torch və Zoom istifadə et.", "");
 </script>
 </body>
 </html>
