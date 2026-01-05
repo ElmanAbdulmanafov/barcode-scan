@@ -5,15 +5,16 @@
   <style>
     body{font-family:Arial;margin:16px}
     .box{padding:12px;border:1px solid #ddd;border-radius:14px;margin:12px 0}
-    input,button,select{font-size:18px;padding:12px;width:100%;margin:8px 0;box-sizing:border-box}
+    input,button{font-size:18px;padding:12px;width:100%;margin:8px 0;box-sizing:border-box}
     .small{font-size:13px;opacity:.95}
     .ok{color:#0a7}.err{color:#c00}
     #viewport{position:relative;width:100%;border-radius:14px;overflow:hidden;background:#000}
     #viewport video, #viewport canvas{width:100% !important;height:auto !important;display:block}
-    #status{margin-top:8px}
     pre{white-space:pre-wrap;word-break:break-word}
     .row{display:flex;gap:10px}
     .row button{width:50%}
+    label{display:block;margin-top:8px}
+    input[type="range"]{width:100%}
   </style>
 </head>
 <body>
@@ -28,6 +29,7 @@
 
 <div class="box">
   <div id="viewport"></div>
+
   <div id="status" class="small"></div>
 
   <div class="row">
@@ -50,10 +52,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
 
 <script>
-  // ====== SƏNİN APPS SCRIPT URL ======
+  // ====== APPS SCRIPT URL (SƏNİN YENİ URL) ======
   const APPS_SCRIPT_URL =
     "https://script.google.com/macros/s/AKfycbyMlTDXh-2DRVetIsrPm3KIh2_9J9sWOMntcLl1ADgKjfumlIj3cGaYI2i7ht4v2qHr7w/exec";
 
+  // ====== UI ======
   const operatorEl = document.getElementById("operator");
   const viewportEl = document.getElementById("viewport");
   const statusEl = document.getElementById("status");
@@ -77,27 +80,43 @@
   operatorEl.value = localStorage.getItem("operator") || "";
   operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
 
-  // ====== POST (urlencoded + TEXT response) ======
- async function postScan(barcode, operator) {
-  const body = new URLSearchParams({ barcode, operator });
-
-  const res = await fetch(APPS_SCRIPT_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-    body
-  });
-
-  const text = await res.text();
-  dbg("POST RESP (" + res.status + "): " + text);
-
-  let data;
-  try { data = JSON.parse(text); } catch { throw new Error("Server JSON qaytarmadı: " + text); }
-
-  if (!data.ok) throw new Error(data.error || "POST error");
-
+  // ====== FILTER RULES ======
+  // Yalnız 2026/2027/2028 ilə başlayan və yalnız rəqəmlər
+  function isAllowedBarcode(code) {
+    if (!/^\d+$/.test(code)) return false;
+    return code.startsWith("2026") || code.startsWith("2027") || code.startsWith("2028");
   }
 
-  // ====== Torch / Zoom / Focus (track capabilities) ======
+  // ====== POST (urlencoded; response text -> parse JSON attempt) ======
+  async function postScan(barcode, operator) {
+    const body = new URLSearchParams({ barcode, operator });
+
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body
+    });
+
+    const text = await res.text();
+    dbg("POST RESP (" + res.status + "): " + text.slice(0, 200));
+
+    if (!res.ok) throw new Error("HTTP " + res.status + ": " + text);
+
+    // Server JSON qaytarırsa oxuyaq, qaytarmırsa da OK text ola bilər
+    try {
+      const data = JSON.parse(text);
+      if (data && data.ok === false) throw new Error(data.error || "Server error");
+      if (data && data.ok === true) return true;
+    } catch {
+      // JSON deyil → text kimi yoxla
+      if (!text.trim().toUpperCase().startsWith("OK")) {
+        throw new Error(text || "Unknown server response");
+      }
+    }
+    return true;
+  }
+
+  // ====== Torch / Zoom / Focus ======
   let track = null;
   let torchOn = false;
 
@@ -115,22 +134,20 @@
         focusMode: caps.focusMode || null
       }));
 
-      // torch
       btnTorch.disabled = !caps.torch;
 
-      // zoom
       if (caps.zoom) {
         zoomEl.disabled = false;
         zoomEl.min = caps.zoom.min;
         zoomEl.max = caps.zoom.max;
         zoomEl.step = 0.1;
+        // default 2x (mümkünsə)
         zoomEl.value = Math.min(Math.max(2.0, zoomEl.min), zoomEl.max);
         await setZoom(zoomEl.value);
       } else {
         zoomEl.disabled = true;
       }
 
-      // focus
       btnFocus.disabled = !(caps.focusMode && caps.focusMode.length);
     } catch (e) {
       dbg("Track init error: " + (e.message || e));
@@ -160,9 +177,15 @@
   zoomEl.oninput = async () => { try { await setZoom(zoomEl.value); } catch(e){ dbg("Zoom error: "+(e.message||e)); } };
   btnFocus.onclick = async () => { try { await refocus(); } catch(e){ dbg("Focus error: "+(e.message||e)); } };
 
-  // ====== Quagga2 Scan ======
+  // ====== Scanner State ======
   let running = false;
-  let last = "", lastAt = 0;
+
+  // Eyni barkodu dalbadal yazmasın:
+  let lastAccepted = "";
+  let lastAcceptedAt = 0;
+
+  // Debounce/anti-spam: eyni kodu 2 saniyə ərzində yenə yazmasın
+  const DUP_WINDOW_MS = 2000;
 
   function stopScanner() {
     running = false;
@@ -192,7 +215,6 @@
     btnStop.style.display = "block";
     setStatus("Kamera açılır / Scanner start...", "");
 
-    // 1D üçün ən stabil config
     Quagga.init({
       inputStream: {
         type: "LiveStream",
@@ -202,7 +224,7 @@
           width: { ideal: 1920 },
           height: { ideal: 1080 }
         },
-        area: { // scan zonasını mərkəzə fokusla (1D üçün çox kömək edir)
+        area: { // mərkəz zonası
           top: "20%",
           right: "10%",
           left: "10%",
@@ -210,21 +232,21 @@
         }
       },
       locator: {
-        patchSize: "large",  // large = daha yaxşı detect
+        patchSize: "large",
         halfSample: false
       },
-      locate: true,          // barkodu özü tapsın
-      numOfWorkers: 2,       // iPhone-da çox böyük etmə
-      frequency: 10,         // frame rate
+      locate: true,
+      numOfWorkers: 2,
+      frequency: 10,
       decoder: {
         readers: [
-          "code_39_reader",      // səndəki *...* üçün əsas
+          "code_39_reader",
           "code_128_reader",
           "ean_reader",
           "ean_8_reader",
           "upc_reader",
           "upc_e_reader",
-          "i2of5_reader",        // ITF
+          "i2of5_reader",
           "codabar_reader",
           "code_93_reader"
         ]
@@ -240,14 +262,12 @@
 
       Quagga.start();
       running = true;
-      setStatus("Scan aktivdir ✅ Barkodu 20-30 sm tut, parıltını azaldıb bir az əy.", "ok");
+      setStatus("Scan aktivdir ✅ Barkodu 20-30 sm tut. Parıltı varsa kağızı azca əy.", "ok");
       dbg("Quagga started ✅");
 
-      // Track controls (torch/zoom)
       setTimeout(initTrackControls, 800);
     });
 
-    // Görünən “box” çizimi (debug üçün)
     Quagga.onProcessed((result) => {
       if (!running) return;
       const drawingCtx = Quagga.canvas.ctx.overlay;
@@ -258,24 +278,44 @@
 
       if (result && result.boxes) {
         result.boxes.filter(b => b !== result.box).forEach((box) => {
-          Quagga.ImageDebug.drawPath(box, {x:0, y:1}, drawingCtx, { color: "rgba(0,255,0,0.3)", lineWidth: 2 });
+          Quagga.ImageDebug.drawPath(box, {x:0, y:1}, drawingCtx, { color: "rgba(0,255,0,0.25)", lineWidth: 2 });
         });
       }
       if (result && result.box) {
-        Quagga.ImageDebug.drawPath(result.box, {x:0, y:1}, drawingCtx, { color: "rgba(255,0,0,0.6)", lineWidth: 3 });
+        Quagga.ImageDebug.drawPath(result.box, {x:0, y:1}, drawingCtx, { color: "rgba(255,0,0,0.55)", lineWidth: 3 });
       }
     });
 
     Quagga.onDetected(async (data) => {
       if (!running) return;
 
-      const code = (data && data.codeResult && data.codeResult.code) ? String(data.codeResult.code).trim() : "";
+      const code = (data && data.codeResult && data.codeResult.code)
+        ? String(data.codeResult.code).trim()
+        : "";
       if (!code) return;
 
-      // Debounce (1.5s)
+      // 1) Filter: yalnız 2026/2027/2028
+      if (!isAllowedBarcode(code)) {
+        dbg("SKIP (not allowed): " + code);
+        return;
+      }
+
+      // 2) Dalbadal eyni barkod düşməsin (immediate)
+      if (code === lastAccepted) {
+        dbg("SKIP (same as last): " + code);
+        return;
+      }
+
+      // 3) Time window: eyni kod 2 saniyə içində təkrar düşməsin
       const now = Date.now();
-      if (code === last && (now - lastAt) < 1500) return;
-      last = code; lastAt = now;
+      if (code === lastAccepted && (now - lastAcceptedAt) < DUP_WINDOW_MS) {
+        dbg("SKIP (dup window): " + code);
+        return;
+      }
+
+      // qəbul edirik
+      lastAccepted = code;
+      lastAcceptedAt = now;
 
       dbg("READ ✅ " + code);
       if (navigator.vibrate) navigator.vibrate(80);
@@ -291,7 +331,7 @@
     });
   };
 
-  setStatus("Operator yaz → Scan başla. Sonra 🔦 Torch + Zoom ilə düzəlt.", "");
+  setStatus("Operator yaz → Scan başla. Yalnız 2026/2027/2028 başlayanlar qəbul ediləcək.", "");
 </script>
 </body>
 </html>
