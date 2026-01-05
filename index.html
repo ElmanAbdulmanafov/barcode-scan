@@ -1,0 +1,144 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"/>
+  <style>
+    body{font-family:Arial;margin:16px}
+    video{width:100%;border-radius:14px;background:#000}
+    input,button{font-size:18px;padding:12px;width:100%;margin:8px 0;box-sizing:border-box}
+    .small{font-size:13px;opacity:.85}
+    .ok{color:#0a7}.err{color:#c00}
+    .box{padding:12px;border:1px solid #ddd;border-radius:14px}
+  </style>
+  <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
+</head>
+<body>
+  <h2>1D Barcode Scanner</h2>
+
+  <div class="box">
+    <label class="small">Operator</label>
+    <input id="operator" placeholder="məs: Guard-1 / Elman" />
+    <div class="small">Operator cihazda yadda qalacaq.</div>
+  </div>
+
+  <div class="box" style="margin-top:12px;">
+    <video id="video" playsinline></video>
+    <div id="status" class="small"></div>
+  </div>
+
+  <button id="start">Scan başla</button>
+  <button id="stop" style="display:none;">Stop</button>
+
+<script>
+  const APPS_SCRIPT_URL =
+    "https://script.google.com/macros/s/AKfycbwP1w4cSWeKOZKMUvVyQA7dCjI-XRK9xSCULMkr0gGZYCkoyQjst0Eas6yzqhkOaBSpjQ/exec";
+
+  const operatorEl = document.getElementById("operator");
+  const videoEl = document.getElementById("video");
+  const statusEl = document.getElementById("status");
+  const startBtn = document.getElementById("start");
+  const stopBtn  = document.getElementById("stop");
+
+  operatorEl.value = localStorage.getItem("operator") || "";
+  operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
+
+  function setStatus(msg, cls="") {
+    statusEl.className = "small " + cls;
+    statusEl.textContent = msg;
+  }
+
+  const hints = new Map();
+  hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+    ZXing.BarcodeFormat.CODE_128,
+    ZXing.BarcodeFormat.CODE_39,
+    ZXing.BarcodeFormat.EAN_13,
+    ZXing.BarcodeFormat.EAN_8,
+    ZXing.BarcodeFormat.UPC_A,
+    ZXing.BarcodeFormat.UPC_E,
+    ZXing.BarcodeFormat.ITF
+  ]);
+  hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+  const reader = new ZXing.BrowserMultiFormatContinuousReader(hints);
+
+  let scanning = false;
+  let last = "", lastAt = 0;
+
+  async function postScan(barcode, operator) {
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type":"application/json" },
+      body: JSON.stringify({ barcode, operator })
+    });
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || "Xəta");
+  }
+
+  startBtn.onclick = async () => {
+    const operator = operatorEl.value.trim();
+    if (!operator) {
+      setStatus("Operatoru yaz (məs: Guard-1).", "err");
+      operatorEl.focus();
+      return;
+    }
+
+    startBtn.disabled = true;
+    setStatus("Kamera açılır...", "");
+
+    try {
+      scanning = true;
+      stopBtn.style.display = "block";
+
+      await reader.decodeFromConstraints(
+        { audio:false, video:{ facingMode:{ ideal:"environment" } } },
+        videoEl,
+        async (result, err) => {
+          if (!scanning) return;
+          if (result) {
+            const code = String(result.getText ? result.getText() : result.text || "").trim();
+            if (!code) return;
+
+            const now = Date.now();
+            if (code === last && (now - lastAt) < 1500) return;
+            last = code; lastAt = now;
+
+            if (navigator.vibrate) navigator.vibrate(80);
+
+            setStatus(`Oxundu: ${code} → göndərilir...`, "");
+
+            try {
+              await postScan(code, operatorEl.value.trim());
+              setStatus(`Yazıldı ✅ ${code}`, "ok");
+            } catch (e) {
+              setStatus("POST Xəta ❌ " + e.message, "err");
+            }
+          }
+        }
+      );
+
+      setStatus("Scan aktivdir. Barkodu kameraya göstər.", "");
+    } catch (e) {
+      setStatus("Kamera/scan xətası: " + (e.message || e), "err");
+      startBtn.disabled = false;
+      stopBtn.style.display = "none";
+      scanning = false;
+      try { reader.reset(); } catch {}
+    }
+  };
+
+  stopBtn.onclick = () => {
+    scanning = false;
+    try { reader.reset(); } catch {}
+    try {
+      if (videoEl.srcObject) videoEl.srcObject.getTracks().forEach(t=>t.stop());
+      videoEl.srcObject = null;
+    } catch {}
+    stopBtn.style.display = "none";
+    startBtn.disabled = false;
+    setStatus("Dayandırıldı.", "");
+  };
+
+  setStatus("Hazırdır. Operator yaz → 'Scan başla' bas.", "");
+</script>
+</body>
+</html>
