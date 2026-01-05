@@ -27,8 +27,7 @@
     <pre id="debug" class="small"></pre>
   </div>
 
-  <button id="btnPerm">1) Kamera icazəsi ver</button>
-  <button id="btnStart">2) Scan başla</button>
+  <button id="btnStart">Scan başla</button>
   <button id="btnStop" style="display:none;">Stop</button>
 
 <script>
@@ -39,7 +38,6 @@
   const videoEl = document.getElementById("video");
   const statusEl = document.getElementById("status");
   const debugEl  = document.getElementById("debug");
-  const btnPerm  = document.getElementById("btnPerm");
   const btnStart = document.getElementById("btnStart");
   const btnStop  = document.getElementById("btnStop");
 
@@ -56,33 +54,7 @@
   operatorEl.value = localStorage.getItem("operator") || "";
   operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
 
-  // ---------- Kamera permission
-  async function requestCameraPermission() {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Bu brauzer kamera API-ni dəstəkləmir. Chrome/Safari istifadə et.");
-    }
-    const s = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
-      audio: false
-    });
-    s.getTracks().forEach(t => t.stop());
-  }
-
-  btnPerm.onclick = async () => {
-    debugEl.textContent = "";
-    setStatus("Kamera icazəsi soruşulur...", "");
-    try {
-      await requestCameraPermission();
-      setStatus("İcazə verildi ✅ İndi 'Scan başla' bas.", "ok");
-      dbg("Permission OK ✅");
-    } catch (e) {
-      const name = e?.name ? (e.name + " - ") : "";
-      setStatus("Kamera icazəsi alınmadı ❌", "err");
-      dbg("KAMERA XƏTASI: " + name + (e.message || e));
-    }
-  };
-
-  // ---------- ZXing UMD yüklə
+  // ZXing UMD load (jsDelivr -> unpkg)
   function loadScript(url) {
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
@@ -93,43 +65,19 @@
       document.head.appendChild(s);
     });
   }
-
   async function ensureZXingLoaded() {
     if (window.ZXing) return;
-
     const urls = [
       "https://cdn.jsdelivr.net/npm/@zxing/library@0.20.0/umd/index.min.js",
       "https://unpkg.com/@zxing/library@0.20.0/umd/index.min.js"
     ];
-
     for (const u of urls) {
-      try {
-        dbg("ZXing yüklənir: " + u);
-        await loadScript(u);
-        if (window.ZXing) { dbg("ZXing OK ✅"); return; }
-      } catch (e) {
-        dbg("ZXing FAIL ❌ " + e.message);
-      }
+      try { dbg("ZXing yüklənir: " + u); await loadScript(u); if (window.ZXing){ dbg("ZXing OK ✅"); return; } }
+      catch(e){ dbg("ZXing FAIL ❌ " + e.message); }
     }
     throw new Error("ZXing yüklənmədi (CDN blok ola bilər).");
   }
 
-  // ---------- brauzerdən camera device seç
-  async function pickBestCameraDeviceId() {
-    // Permissions sonra label-lar görünür
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const cams = devices.filter(d => d.kind === "videoinput");
-    if (!cams.length) throw new Error("Videokamera tapılmadı (videoinput yoxdur)");
-
-    // arxa kamera tapmağa çalışaq
-    const prefer = cams.find(d => /back|rear|environment/i.test(d.label));
-    if (prefer) return prefer.deviceId;
-
-    // tapmasa, sonuncu (çox vaxt arxa kamera)
-    return cams[cams.length - 1].deviceId;
-  }
-
-  // ---------- POST
   async function postScan(barcode, operator) {
     const res = await fetch(APPS_SCRIPT_URL, {
       method: "POST",
@@ -140,68 +88,24 @@
     if (!data.ok) throw new Error(data.error || "Xəta");
   }
 
-  // ---------- Scan state
   let stream = null;
   let reader = null;
   let scanning = false;
   let last = "", lastAt = 0;
 
-  async function startScan() {
-    // 1) stream aç (label-lar üçün də lazımdır)
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
-      audio: false
-    });
+  async function startCameraStrong() {
+    // Daha keyfiyyətli frame üçün “ideal” parametrlər
+    const constraints = {
+      audio: false,
+      video: {
+        facingMode: { ideal: "environment" },
+        width:  { ideal: 1280 },
+        height: { ideal: 720 }
+      }
+    };
+    stream = await navigator.mediaDevices.getUserMedia(constraints);
     videoEl.srcObject = stream;
     await videoEl.play();
-    dbg("Stream açıldı ✅");
-
-    // 2) device id seç
-    const deviceId = await pickBestCameraDeviceId();
-    dbg("Seçilən kamera deviceId: " + deviceId);
-
-    // 3) ZXing hints
-    const hints = new Map();
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
-      ZXing.BarcodeFormat.CODE_128,
-      ZXing.BarcodeFormat.CODE_39,
-      ZXing.BarcodeFormat.EAN_13,
-      ZXing.BarcodeFormat.EAN_8,
-      ZXing.BarcodeFormat.UPC_A,
-      ZXing.BarcodeFormat.UPC_E,
-      ZXing.BarcodeFormat.ITF
-    ]);
-    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
-
-    reader = new ZXing.BrowserMultiFormatReader(hints);
-
-    scanning = true;
-    setStatus("Scan aktivdir. Barkodu kameraya göstər.", "");
-
-    // 4) continuous decode
-    await reader.decodeFromVideoDevice(deviceId, videoEl, async (result, err) => {
-      if (!scanning) return;
-
-      if (result) {
-        const code = String(result.getText ? result.getText() : result.text || "").trim();
-        if (!code) return;
-
-        const now = Date.now();
-        if (code === last && (now - lastAt) < 1500) return;
-        last = code; lastAt = now;
-
-        if (navigator.vibrate) navigator.vibrate(80);
-
-        setStatus(`Oxundu: ${code} → göndərilir...`, "");
-        try {
-          await postScan(code, operatorEl.value.trim());
-          setStatus(`Yazıldı ✅ ${code}`, "ok");
-        } catch (e) {
-          setStatus("POST Xəta ❌ " + (e.message || e), "err");
-          dbg("POST XƏTASI: " + (e.message || e));
-        }
-      }
-    });
   }
 
   function stopAll() {
@@ -228,15 +132,70 @@
     setStatus("Hazırlanır...", "");
 
     try {
-      // Kamera permission olmadan enumerateDevices label verməyə bilər — ona görə əvvəl permission test et
-      await requestCameraPermission();
       await ensureZXingLoaded();
-      await startScan();
-    } catch (e) {
-      const name = e?.name ? (e.name + " - ") : "";
-      setStatus("Xəta ❌ " + name + (e.message || e), "err");
-      dbg("START XƏTASI: " + name + (e.message || e));
+      await startCameraStrong();
+      dbg("Kamera açıldı ✅");
 
+      // Formatları genişləndirək (bəzən digər 1D də olur)
+      const hints = new Map();
+      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+        ZXing.BarcodeFormat.CODE_128,
+        ZXing.BarcodeFormat.CODE_39,
+        ZXing.BarcodeFormat.CODE_93,
+        ZXing.BarcodeFormat.EAN_13,
+        ZXing.BarcodeFormat.EAN_8,
+        ZXing.BarcodeFormat.UPC_A,
+        ZXing.BarcodeFormat.UPC_E,
+        ZXing.BarcodeFormat.ITF,
+        ZXing.BarcodeFormat.CODABAR,
+        ZXing.BarcodeFormat.RSS_14,
+        ZXing.BarcodeFormat.RSS_EXPANDED
+      ]);
+      hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+
+      reader = new ZXing.BrowserMultiFormatReader(hints);
+
+      scanning = true;
+      setStatus("Scan aktivdir. Barkodu kameraya 15-25 sm məsafədə tut.", "");
+
+      // ƏN STABİL üsul: constraints ilə decode
+      // (device list-ə ehtiyac yoxdur)
+      await reader.decodeFromConstraints(
+        { video: { facingMode: { ideal: "environment" } }, audio: false },
+        videoEl,
+        async (result, err) => {
+          if (!scanning) return;
+
+          if (result) {
+            const code = String(result.getText ? result.getText() : result.text || "").trim();
+            if (!code) return;
+
+            // debug: oxunuşu göstər
+            dbg("READ ✅ " + code);
+
+            const now = Date.now();
+            if (code === last && (now - lastAt) < 1500) return;
+            last = code; lastAt = now;
+
+            if (navigator.vibrate) navigator.vibrate(80);
+
+            setStatus(`Oxundu: ${code} → göndərilir...`, "");
+            try {
+              await postScan(code, operatorEl.value.trim());
+              setStatus(`Yazıldı ✅ ${code}`, "ok");
+            } catch (e) {
+              setStatus("POST Xəta ❌ " + (e.message || e), "err");
+              dbg("POST XƏTASI: " + (e.message || e));
+            }
+          } else if (err) {
+            // ZXing hər frame-də error verir, bunu spam etməyək.
+          }
+        }
+      );
+
+    } catch (e) {
+      setStatus("Xəta ❌ " + (e.message || e), "err");
+      dbg("START XƏTASI: " + (e.message || e));
       stopAll();
       btnStart.disabled = false;
       btnStop.style.display = "none";
@@ -251,7 +210,7 @@
     dbg("Stop edildi.");
   };
 
-  setStatus("1) 'Kamera icazəsi ver' bas → sonra 2) 'Scan başla'", "");
+  setStatus("Operator yaz → 'Scan başla' bas.", "");
 </script>
 </body>
 </html>
