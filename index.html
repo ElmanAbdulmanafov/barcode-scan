@@ -93,14 +93,19 @@
     throw new Error("ZXing yüklənmədi (CDN blok ola bilər).");
   }
 
-  async function postScan(barcode, operator) {
-    const res = await fetch(APPS_SCRIPT_URL, {
-      method: "POST",
-      headers: { "Content-Type":"application/json" },
-      body: JSON.stringify({ barcode, operator })
-    });
-    const data = await res.json();
-    if (!data.ok) throw new Error(data.error || "Xəta");
+async function postScan(barcode, operator) {
+  const body = new URLSearchParams({ barcode, operator });
+
+  const res = await fetch(APPS_SCRIPT_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+    body
+  });
+
+  const text = await res.text();
+  if (!text.startsWith("OK")) throw new Error(text || "POST error");
+}
+
   }
 
   let stream = null;
