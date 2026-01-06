@@ -3,29 +3,39 @@
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Terminal Scan</title>
+
 <style>
-body{font-family:system-ui;background:#0b0f14;color:#e9f0f7;margin:0}
-.wrap{max-width:500px;margin:auto;padding:14px}
-.card{background:#121822;border-radius:16px;padding:14px}
-input,button{width:100%;padding:12px;margin-top:8px;font-size:16px;border-radius:12px;border:none}
+body{margin:0;font-family:system-ui;background:#0b0f14;color:#e9f0f7}
+.wrap{max-width:520px;margin:auto;padding:14px}
+.card{background:#121822;border-radius:16px;padding:16px}
+h3{margin-top:0}
+input,button{
+  width:100%;padding:12px;margin-top:10px;
+  font-size:16px;border-radius:12px;border:none
+}
 input{background:#0e1420;color:#fff}
-button{background:#223149;color:#fff}
-#msg{margin-top:10px;padding:10px;border-radius:12px}
+button{background:#223149;color:#fff;cursor:pointer}
+
+#status{margin-top:12px;padding:10px;border-radius:12px}
 .ok{background:#173b2f;color:#6dffb2}
 .err{background:#3b1717;color:#ffb3b3}
+
 #modal{
   position:fixed;inset:0;background:rgba(0,0,0,.6);
   display:none;align-items:center;justify-content:center;z-index:999
 }
 #modalBox{
-  background:#121822;padding:20px;border-radius:16px;
-  font-size:18px;text-align:center;min-width:260px
+  background:#121822;padding:22px;border-radius:16px;
+  text-align:center;font-size:18px;min-width:260px
 }
 #modalBox.ok{border:2px solid #19c37d}
 #modalBox.err{border:2px solid #ff4d4f}
+
 .code{font-family:monospace;font-size:16px}
+.small{font-size:12px;color:#9fb0c3;margin-top:8px}
 </style>
 </head>
+
 <body>
 
 <div class="wrap">
@@ -33,9 +43,14 @@ button{background:#223149;color:#fff}
     <h3>Terminal Barkod Scan</h3>
 
     <input id="operator" placeholder="Operator adı">
-    <input id="scan" placeholder="Barkodu scan et" autofocus>
+    <input id="scan" placeholder="Kursor burada qalsın, barkodu scan et" autofocus>
 
-    <div id="msg">Hazırdır.</div>
+    <div id="status">Hazırdır.</div>
+
+    <div class="small">
+      📌 Terminal skaneri barkodu klaviatura kimi yazır.  
+      Suffix: <b>ENTER</b> və ya <b>TAB</b> tövsiyə olunur.
+    </div>
   </div>
 </div>
 
@@ -44,89 +59,135 @@ button{background:#223149;color:#fff}
 </div>
 
 <script>
-const APPS_SCRIPT_URL =
-"https://script.google.com/macros/s/AKfycbyMlTDXh-2DRVetIsrPm3KIh2_9J9sWOMntcLl1ADgKjfumlIj3cGaYI2i7ht4v2qHr7w/exec";
+/* ===============================
+   POWER AUTOMATE ENDPOINT
+   =============================== */
+const ENDPOINT_URL =
+"https://defaultc660a74ec1ac4c5881cbe2654148fc.b7.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/2c9603cebe1647dba66b07e8b44a5df1/triggers/manual/paths/invoke?api-version=1";
 
+/* ===============================
+   ELEMENTS
+   =============================== */
 const scanEl = document.getElementById("scan");
 const operatorEl = document.getElementById("operator");
-const msgEl = document.getElementById("msg");
+const statusEl = document.getElementById("status");
 const modal = document.getElementById("modal");
 const modalBox = document.getElementById("modalBox");
 
+/* ===============================
+   OPERATOR – LOCAL STORAGE
+   =============================== */
 operatorEl.value = localStorage.getItem("operator") || "";
-operatorEl.oninput = () => localStorage.setItem("operator", operatorEl.value);
+operatorEl.oninput = () =>
+  localStorage.setItem("operator", operatorEl.value);
 
-let scannedSet = new Set(); // 🔒 BÜTÜN OXUNANLAR
+/* ===============================
+   DUPLICATE BLOCK (SESSION)
+   =============================== */
+const scannedSet = new Set();
 
+/* ===============================
+   HELPERS
+   =============================== */
 function isAllowed(code){
   return /^\d+$/.test(code) &&
-    (code.startsWith("2026") || code.startsWith("2027") || code.startsWith("2028"));
+    (code.startsWith("2026") ||
+     code.startsWith("2027") ||
+     code.startsWith("2028"));
 }
 
-function showModal(type, text){
+function showStatus(type, text){
+  statusEl.className = type || "";
+  statusEl.innerHTML = text;
+}
+
+function showModal(type, html){
   modalBox.className = type;
-  modalBox.innerHTML = text;
+  modalBox.innerHTML = html;
   modal.style.display = "flex";
   setTimeout(()=> modal.style.display="none", 1500);
 }
 
-async function send(code){
-  const body = new URLSearchParams({ barcode:code, operator:operatorEl.value });
-  const r = await fetch(APPS_SCRIPT_URL,{
+/* ===============================
+   SEND TO POWER AUTOMATE
+   =============================== */
+async function sendToFlow(code){
+  const payload = {
+    barcode: code,
+    operator: operatorEl.value,
+    device: "Terminal-01"
+  };
+
+  const res = await fetch(ENDPOINT_URL,{
     method:"POST",
-    headers:{ "Content-Type":"application/x-www-form-urlencoded" },
-    body
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify(payload)
   });
-  if(!r.ok) throw new Error("Server error");
+
+  if(!res.ok){
+    throw new Error("HTTP " + res.status);
+  }
 }
 
-async function handle(code){
-  scanEl.value = "";
+/* ===============================
+   MAIN HANDLER
+   =============================== */
+async function handleScan(raw){
+  const code = String(raw || "").trim();
+  scanEl.value="";
   scanEl.focus();
 
+  if(!code) return;
+
+  if(!operatorEl.value.trim()){
+    showStatus("err","❌ Operator boşdur");
+    return;
+  }
+
   if(!isAllowed(code)){
-    msgEl.className="err";
-    msgEl.innerHTML="Yanlış barkod";
+    showStatus("err","❌ Yanlış barkod");
+    showModal("err","❌ Qəbul edilmədi<br><span class='code'>"+code+"</span>");
     return;
   }
 
   if(scannedSet.has(code)){
-    msgEl.className="err";
-    msgEl.innerHTML="Təkrar barkod bloklandı";
-    showModal("err","❌ Bu barkod artıq oxunub<br><span class='code'>"+code+"</span>");
-    return;
-  }
-
-  if(!operatorEl.value.trim()){
-    msgEl.className="err";
-    msgEl.innerHTML="Operator boşdur";
+    showStatus("err","⚠️ Təkrar barkod bloklandı");
+    showModal("err","⚠️ Bu barkod artıq oxunub<br><span class='code'>"+code+"</span>");
     return;
   }
 
   try{
-    await send(code);
-    scannedSet.add(code); // 🔒 ARTIQ BLOKLANIR
-    msgEl.className="ok";
-    msgEl.innerHTML="Yazıldı: "+code;
+    await sendToFlow(code);
+    scannedSet.add(code);
+
+    showStatus("ok","✅ Yazıldı: "+code);
     showModal("ok","✅ Uğurla yazıldı<br><span class='code'>"+code+"</span>");
   }catch(e){
-    msgEl.className="err";
-    msgEl.innerHTML="Göndərilmədi";
+    showStatus("err","❌ Göndərilmədi");
+    showModal("err","❌ Server xətası");
   }
 }
 
+/* ===============================
+   KEYBOARD SCAN (ENTER / TAB)
+   =============================== */
 scanEl.addEventListener("keydown",e=>{
-  if(e.key==="Enter"||e.key==="Tab"){
+  if(e.key==="Enter" || e.key==="Tab"){
     e.preventDefault();
-    handle(scanEl.value.trim());
+    handleScan(scanEl.value);
   }
 });
 
+/* ===============================
+   FALLBACK (NO ENTER)
+   =============================== */
 let t=null;
 scanEl.addEventListener("input",()=>{
   if(t) clearTimeout(t);
   t=setTimeout(()=>{
-    if(scanEl.value.length>=8) handle(scanEl.value.trim());
+    if(scanEl.value.length>=8){
+      handleScan(scanEl.value);
+    }
   },200);
 });
 
