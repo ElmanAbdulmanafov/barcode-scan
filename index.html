@@ -1,180 +1,136 @@
 <!doctype html>
 <html lang="az">
 <head>
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
-  <title>Terminal Scan</title>
-  <style>
-    :root{
-      --bg:#0b0f14; --card:#121822; --muted:#9fb0c3; --text:#e9f0f7;
-      --ok:#19c37d; --err:#ff4d4f; --border:rgba(255,255,255,.08); --btn:#223149;
-    }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
-    .wrap{max-width:520px;margin:0 auto;padding:14px}
-    .title{font-size:18px;font-weight:800;margin:6px 0}
-    .sub{font-size:13px;color:var(--muted);margin:0 0 12px;line-height:1.35}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:12px}
-    label{font-size:12px;color:var(--muted);display:block;margin:10px 0 6px}
-    input,button{
-      width:100%;padding:12px;border-radius:12px;border:1px solid var(--border);
-      background:#0e1420;color:var(--text);font-size:16px;outline:none
-    }
-    button{background:var(--btn);cursor:pointer}
-    .pill{
-      margin-top:10px;padding:10px 12px;border-radius:14px;border:1px solid var(--border);
-      background:#0e1420;font-size:13px;line-height:1.25;color:var(--muted)
-    }
-    .pill.ok{border-color:rgba(25,195,125,.35);background:rgba(25,195,125,.12);color:#c8ffe6}
-    .pill.err{border-color:rgba(255,77,79,.35);background:rgba(255,77,79,.10);color:#ffe3e3}
-    .code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text)}
-    .row{display:flex;gap:10px;margin-top:10px}
-    .row button{width:50%}
-    .hint{margin-top:10px;font-size:12px;color:var(--muted);line-height:1.35}
-  </style>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terminal Scan</title>
+<style>
+body{font-family:system-ui;background:#0b0f14;color:#e9f0f7;margin:0}
+.wrap{max-width:500px;margin:auto;padding:14px}
+.card{background:#121822;border-radius:16px;padding:14px}
+input,button{width:100%;padding:12px;margin-top:8px;font-size:16px;border-radius:12px;border:none}
+input{background:#0e1420;color:#fff}
+button{background:#223149;color:#fff}
+#msg{margin-top:10px;padding:10px;border-radius:12px}
+.ok{background:#173b2f;color:#6dffb2}
+.err{background:#3b1717;color:#ffb3b3}
+#modal{
+  position:fixed;inset:0;background:rgba(0,0,0,.6);
+  display:none;align-items:center;justify-content:center;z-index:999
+}
+#modalBox{
+  background:#121822;padding:20px;border-radius:16px;
+  font-size:18px;text-align:center;min-width:260px
+}
+#modalBox.ok{border:2px solid #19c37d}
+#modalBox.err{border:2px solid #ff4d4f}
+.code{font-family:monospace;font-size:16px}
+</style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="title">Terminal Scan (Scan-only)</div>
-    <div class="sub">
-      Terminalın lazer skaneri barkodu “klaviatura” kimi yazır.
-      Bu səhifədə sadəcə scan et → avtomatik göndər.
-      (Yalnız 2026/2027/2028 başlayanlar.)
-    </div>
 
-    <div class="card">
-      <label>Operator</label>
-      <input id="operator" placeholder="məs: Guard-1 / Operator-3" autocomplete="off"/>
+<div class="wrap">
+  <div class="card">
+    <h3>Terminal Barkod Scan</h3>
 
-      <label>Scan sahəsi</label>
-      <input id="scan" placeholder="Kursor burada qalsın, barkodu scan et..." autocomplete="off" inputmode="none"/>
+    <input id="operator" placeholder="Operator adı">
+    <input id="scan" placeholder="Barkodu scan et" autofocus>
 
-      <div class="row">
-        <button id="btnFocus">Scan sahəsinə fokus</button>
-        <button id="btnClear">Təmizlə</button>
-      </div>
-
-      <div id="msg" class="pill">Hazırdır. Scan sahəsinə fokus verilib.</div>
-
-      <div class="hint">
-        ⚙️ Terminalda skan “Enter” ilə bitməlidir (ən yaxşısı). Əgər “Tab” göndərirsə, o da qəbul olunur.
-      </div>
-    </div>
+    <div id="msg">Hazırdır.</div>
   </div>
+</div>
 
-  <script>
-    // ✅ SƏNİN APPS SCRIPT URL
-    const APPS_SCRIPT_URL =
-      "https://script.google.com/macros/s/AKfycbyMlTDXh-2DRVetIsrPm3KIh2_9J9sWOMntcLl1ADgKjfumlIj3cGaYI2i7ht4v2qHr7w/exec";
+<div id="modal">
+  <div id="modalBox"></div>
+</div>
 
-    const operatorEl = document.getElementById("operator");
-    const scanEl = document.getElementById("scan");
-    const msgEl = document.getElementById("msg");
-    const btnFocus = document.getElementById("btnFocus");
-    const btnClear = document.getElementById("btnClear");
+<script>
+const APPS_SCRIPT_URL =
+"https://script.google.com/macros/s/AKfycbyMlTDXh-2DRVetIsrPm3KIh2_9J9sWOMntcLl1ADgKjfumlIj3cGaYI2i7ht4v2qHr7w/exec";
 
-    // operator yadda saxla
-    operatorEl.value = localStorage.getItem("operator") || "";
-    operatorEl.addEventListener("input", ()=> localStorage.setItem("operator", operatorEl.value));
+const scanEl = document.getElementById("scan");
+const operatorEl = document.getElementById("operator");
+const msgEl = document.getElementById("msg");
+const modal = document.getElementById("modal");
+const modalBox = document.getElementById("modalBox");
 
-    function setMsg(type, html){
-      msgEl.className = "pill " + (type || "");
-      msgEl.innerHTML = html;
-    }
+operatorEl.value = localStorage.getItem("operator") || "";
+operatorEl.oninput = () => localStorage.setItem("operator", operatorEl.value);
 
-    // yalnız 2026/2027/2028 + yalnız rəqəm
-    function isAllowed(code){
-      if (!/^\d+$/.test(code)) return false;
-      return code.startsWith("2026") || code.startsWith("2027") || code.startsWith("2028");
-    }
+let scannedSet = new Set(); // 🔒 BÜTÜN OXUNANLAR
 
-    // duplicate (dalbadal) blok
-    let lastSent = "";
-    let lastSentAt = 0;
-    const DUP_MS = 3000;
+function isAllowed(code){
+  return /^\d+$/.test(code) &&
+    (code.startsWith("2026") || code.startsWith("2027") || code.startsWith("2028"));
+}
 
-    async function postScan(barcode, operator){
-      const body = new URLSearchParams({ barcode, operator });
-      const res = await fetch(APPS_SCRIPT_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-        body
-      });
-      const text = await res.text();
-      if (!res.ok) throw new Error("HTTP " + res.status + ": " + text);
+function showModal(type, text){
+  modalBox.className = type;
+  modalBox.innerHTML = text;
+  modal.style.display = "flex";
+  setTimeout(()=> modal.style.display="none", 1500);
+}
 
-      // JSON ola bilər / text ola bilər
-      try {
-        const data = JSON.parse(text);
-        if (data && data.ok === false) throw new Error(data.error || "Server error");
-      } catch {
-        if (!text.trim().toUpperCase().startsWith("OK") && !text.includes('"ok":true')) {
-          // bəzi scriptlər "OK" qaytarmır, amma JSON qaytarır — səndə JSON var, bu normalda keçəcək
-        }
-      }
-    }
+async function send(code){
+  const body = new URLSearchParams({ barcode:code, operator:operatorEl.value });
+  const r = await fetch(APPS_SCRIPT_URL,{
+    method:"POST",
+    headers:{ "Content-Type":"application/x-www-form-urlencoded" },
+    body
+  });
+  if(!r.ok) throw new Error("Server error");
+}
 
-    async function handleCode(raw){
-      const code = String(raw || "").trim();
-      if (!code) return;
+async function handle(code){
+  scanEl.value = "";
+  scanEl.focus();
 
-      // scan sahəsini təmiz saxla (terminal ardıcıl scan üçün)
-      scanEl.value = "";
-      scanEl.focus();
+  if(!isAllowed(code)){
+    msgEl.className="err";
+    msgEl.innerHTML="Yanlış barkod";
+    return;
+  }
 
-      if (!isAllowed(code)){
-        setMsg("err", `❌ Qəbul edilmədi: <span class="code">${code}</span><br><span style="color:#9fb0c3">Yalnız 2026/2027/2028 başlayan kodlar.</span>`);
-        return;
-      }
+  if(scannedSet.has(code)){
+    msgEl.className="err";
+    msgEl.innerHTML="Təkrar barkod bloklandı";
+    showModal("err","❌ Bu barkod artıq oxunub<br><span class='code'>"+code+"</span>");
+    return;
+  }
 
-      const now = Date.now();
-      if (code === lastSent && (now - lastSentAt) < DUP_MS){
-        setMsg("", `⚠️ Təkrar scan bloklandı: <span class="code">${code}</span>`);
-        return;
-      }
+  if(!operatorEl.value.trim()){
+    msgEl.className="err";
+    msgEl.innerHTML="Operator boşdur";
+    return;
+  }
 
-      const op = operatorEl.value.trim();
-      if (!op){
-        setMsg("err", "❌ Operator boşdur. Operator yaz, sonra scan et.");
-        operatorEl.focus();
-        return;
-      }
+  try{
+    await send(code);
+    scannedSet.add(code); // 🔒 ARTIQ BLOKLANIR
+    msgEl.className="ok";
+    msgEl.innerHTML="Yazıldı: "+code;
+    showModal("ok","✅ Uğurla yazıldı<br><span class='code'>"+code+"</span>");
+  }catch(e){
+    msgEl.className="err";
+    msgEl.innerHTML="Göndərilmədi";
+  }
+}
 
-      lastSent = code;
-      lastSentAt = now;
+scanEl.addEventListener("keydown",e=>{
+  if(e.key==="Enter"||e.key==="Tab"){
+    e.preventDefault();
+    handle(scanEl.value.trim());
+  }
+});
 
-      setMsg("", `✅ Oxundu: <span class="code">${code}</span><br>Göndərilir...`);
+let t=null;
+scanEl.addEventListener("input",()=>{
+  if(t) clearTimeout(t);
+  t=setTimeout(()=>{
+    if(scanEl.value.length>=8) handle(scanEl.value.trim());
+  },200);
+});
 
-      try{
-        await postScan(code, op);
-        setMsg("ok", `✅ Yazıldı: <span class="code">${code}</span>`);
-      }catch(e){
-        setMsg("err", `❌ Göndərilmədi: ${(e.message || e)}`);
-      }
-    }
-
-    // Skanerlərin çoxu sonda Enter göndərir. Bəziləri Tab.
-    scanEl.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" || ev.key === "Tab"){
-        ev.preventDefault();
-        handleCode(scanEl.value);
-      }
-    });
-
-    // Əgər bəzi cihaz Enter/Tab göndərmirsə, 200ms "sakitlik" görəndə göndərək:
-    let t = null;
-    scanEl.addEventListener("input", () => {
-      if (t) clearTimeout(t);
-      t = setTimeout(() => {
-        // scan bitmiş kimi qəbul et
-        if (scanEl.value && scanEl.value.length >= 8) handleCode(scanEl.value);
-      }, 220);
-    });
-
-    btnFocus.onclick = () => { scanEl.focus(); setMsg("", "Hazırdır. Scan sahəsinə fokus verildi."); };
-    btnClear.onclick = () => { scanEl.value=""; scanEl.focus(); setMsg("", "Təmizləndi."); };
-
-    // səhifə açılanda fokus
-    setTimeout(()=> scanEl.focus(), 200);
-  </script>
+scanEl.focus();
+</script>
 </body>
 </html>
