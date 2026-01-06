@@ -3,195 +3,154 @@
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Terminal Scan</title>
-
 <style>
-body{margin:0;font-family:system-ui;background:#0b0f14;color:#e9f0f7}
-.wrap{max-width:520px;margin:auto;padding:14px}
-.card{background:#121822;border-radius:16px;padding:16px}
-h3{margin-top:0}
-input,button{
-  width:100%;padding:12px;margin-top:10px;
-  font-size:16px;border-radius:12px;border:none
-}
-input{background:#0e1420;color:#fff}
-button{background:#223149;color:#fff;cursor:pointer}
+  body{margin:0;font-family:system-ui;background:#0b0f14;color:#e9f0f7}
+  .wrap{max-width:520px;margin:auto;padding:14px}
+  .card{background:#121822;border-radius:16px;padding:16px}
+  h3{margin:0 0 10px}
+  input{width:100%;padding:12px;margin-top:10px;font-size:16px;border-radius:12px;border:none;background:#0e1420;color:#fff}
+  #status{margin-top:12px;padding:10px;border-radius:12px;background:#0e1420;color:#9fb0c3}
+  .ok{background:#173b2f;color:#6dffb2}
+  .err{background:#3b1717;color:#ffb3b3}
 
-#status{margin-top:12px;padding:10px;border-radius:12px}
-.ok{background:#173b2f;color:#6dffb2}
-.err{background:#3b1717;color:#ffb3b3}
-
-#modal{
-  position:fixed;inset:0;background:rgba(0,0,0,.6);
-  display:none;align-items:center;justify-content:center;z-index:999
-}
-#modalBox{
-  background:#121822;padding:22px;border-radius:16px;
-  text-align:center;font-size:18px;min-width:260px
-}
-#modalBox.ok{border:2px solid #19c37d}
-#modalBox.err{border:2px solid #ff4d4f}
-
-.code{font-family:monospace;font-size:16px}
-.small{font-size:12px;color:#9fb0c3;margin-top:8px}
+  #modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:999}
+  #modalBox{background:#121822;padding:22px;border-radius:16px;text-align:center;font-size:18px;min-width:260px}
+  #modalBox.ok{border:2px solid #19c37d}
+  #modalBox.err{border:2px solid #ff4d4f}
+  .code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:16px}
+  .small{font-size:12px;color:#9fb0c3;margin-top:10px;line-height:1.3}
 </style>
 </head>
-
 <body>
 
 <div class="wrap">
   <div class="card">
     <h3>Terminal Barkod Scan</h3>
 
-    <input id="operator" placeholder="Operator adı">
+    <input id="operator" placeholder="Operator adı (məs: Elman)">
     <input id="scan" placeholder="Kursor burada qalsın, barkodu scan et" autofocus>
 
     <div id="status">Hazırdır.</div>
 
     <div class="small">
-      📌 Terminal skaneri barkodu klaviatura kimi yazır.  
-      Suffix: <b>ENTER</b> və ya <b>TAB</b> tövsiyə olunur.
+      ✅ Terminal skaneri barkodu klaviatura kimi yazır. <br>
+      Tövsiyə: Scanner suffix = <b>ENTER</b> və ya <b>TAB</b>
     </div>
   </div>
 </div>
 
-<div id="modal">
-  <div id="modalBox"></div>
-</div>
+<div id="modal"><div id="modalBox"></div></div>
 
 <script>
-/* ===============================
-   POWER AUTOMATE ENDPOINT
-   =============================== */
-const ENDPOINT_URL =
-"https://defaultc660a74ec1ac4c5881cbe2654148fc.b7.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/2c9603cebe1647dba66b07e8b44a5df1/triggers/manual/paths/invoke?api-version=1";
+  // Power Automate endpoint (sənin verdiyin)
+  const ENDPOINT_URL =
+  "https://defaultc660a74ec1ac4c5881cbe2654148fc.b7.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/2c9603cebe1647dba66b07e8b44a5df1/triggers/manual/paths/invoke?api-version=1";
 
-/* ===============================
-   ELEMENTS
-   =============================== */
-const scanEl = document.getElementById("scan");
-const operatorEl = document.getElementById("operator");
-const statusEl = document.getElementById("status");
-const modal = document.getElementById("modal");
-const modalBox = document.getElementById("modalBox");
+  const scanEl = document.getElementById("scan");
+  const operatorEl = document.getElementById("operator");
+  const statusEl = document.getElementById("status");
+  const modal = document.getElementById("modal");
+  const modalBox = document.getElementById("modalBox");
 
-/* ===============================
-   OPERATOR – LOCAL STORAGE
-   =============================== */
-operatorEl.value = localStorage.getItem("operator") || "";
-operatorEl.oninput = () =>
-  localStorage.setItem("operator", operatorEl.value);
+  // operator yadda saxla
+  operatorEl.value = localStorage.getItem("operator") || "";
+  operatorEl.oninput = () => localStorage.setItem("operator", operatorEl.value);
 
-/* ===============================
-   DUPLICATE BLOCK (SESSION)
-   =============================== */
-const scannedSet = new Set();
+  // Duplicate blok (session boyu)
+  const scannedSet = new Set();
 
-/* ===============================
-   HELPERS
-   =============================== */
-function isAllowed(code){
-  return /^\d+$/.test(code) &&
-    (code.startsWith("2026") ||
-     code.startsWith("2027") ||
-     code.startsWith("2028"));
-}
-
-function showStatus(type, text){
-  statusEl.className = type || "";
-  statusEl.innerHTML = text;
-}
-
-function showModal(type, html){
-  modalBox.className = type;
-  modalBox.innerHTML = html;
-  modal.style.display = "flex";
-  setTimeout(()=> modal.style.display="none", 1500);
-}
-
-/* ===============================
-   SEND TO POWER AUTOMATE
-   =============================== */
-async function sendToFlow(code){
-  const payload = {
-    barcode: code,
-    operator: operatorEl.value,
-    device: "Terminal-01"
-  };
-
-  const res = await fetch(ENDPOINT_URL,{
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body: JSON.stringify(payload)
-  });
-
-  if(!res.ok){
-    throw new Error("HTTP " + res.status);
+  function isAllowed(code){
+    return /^\d+$/.test(code) &&
+      (code.startsWith("2026") || code.startsWith("2027") || code.startsWith("2028"));
   }
-}
-
-/* ===============================
-   MAIN HANDLER
-   =============================== */
-async function handleScan(raw){
-  const code = String(raw || "").trim();
-  scanEl.value="";
-  scanEl.focus();
-
-  if(!code) return;
-
-  if(!operatorEl.value.trim()){
-    showStatus("err","❌ Operator boşdur");
-    return;
+  function showStatus(type, text){
+    statusEl.className = type ? type : "";
+    statusEl.textContent = text;
+  }
+  function showModal(type, html){
+    modalBox.className = type;
+    modalBox.innerHTML = html;
+    modal.style.display = "flex";
+    setTimeout(()=> modal.style.display="none", 1500);
   }
 
-  if(!isAllowed(code)){
-    showStatus("err","❌ Yanlış barkod");
-    showModal("err","❌ Qəbul edilmədi<br><span class='code'>"+code+"</span>");
-    return;
+  // ✅ CORS-dan qaçmaq üçün JSON YOX, FORM göndəririk
+  async function sendToFlow(code){
+    const params = new URLSearchParams();
+    params.set("barcode", code);
+    params.set("operator", operatorEl.value.trim());
+    params.set("device", "Terminal-01");
+
+    // Heç bir custom header qoymuruq → preflight/OPTIONS olmur
+    const res = await fetch(ENDPOINT_URL, {
+      method: "POST",
+      body: params
+    });
+
+    // Bəzi hallarda browser response oxuya bilməsə də request gedir.
+    // Amma status 4xx/5xx olsa, burada tutacağıq:
+    if (!res.ok) throw new Error("HTTP " + res.status);
   }
 
-  if(scannedSet.has(code)){
-    showStatus("err","⚠️ Təkrar barkod bloklandı");
-    showModal("err","⚠️ Bu barkod artıq oxunub<br><span class='code'>"+code+"</span>");
-    return;
+  async function handleScan(raw){
+    const code = String(raw || "").trim();
+
+    scanEl.value = "";
+    scanEl.focus();
+
+    if(!code) return;
+
+    const op = operatorEl.value.trim();
+    if(!op){
+      showStatus("err", "❌ Operator boşdur");
+      showModal("err", "❌ Operator boşdur");
+      operatorEl.focus();
+      return;
+    }
+
+    if(!isAllowed(code)){
+      showStatus("err", "❌ Yanlış barkod");
+      showModal("err", "❌ Qəbul edilmədi<br><span class='code'>" + code + "</span>");
+      return;
+    }
+
+    if(scannedSet.has(code)){
+      showStatus("err", "⚠️ Təkrar barkod bloklandı");
+      showModal("err", "⚠️ Bu barkod artıq oxunub<br><span class='code'>" + code + "</span>");
+      return;
+    }
+
+    showStatus("", "Göndərilir...");
+    try{
+      await sendToFlow(code);
+      scannedSet.add(code);
+      showStatus("ok", "✅ Yazıldı: " + code);
+      showModal("ok", "✅ Uğurla yazıldı<br><span class='code'>" + code + "</span>");
+    }catch(e){
+      showStatus("err", "❌ Server xətası: " + (e.message || e));
+      showModal("err", "❌ Server xətası<br><span class='small'>" + (e.message || e) + "</span>");
+    }
   }
 
-  try{
-    await sendToFlow(code);
-    scannedSet.add(code);
-
-    showStatus("ok","✅ Yazıldı: "+code);
-    showModal("ok","✅ Uğurla yazıldı<br><span class='code'>"+code+"</span>");
-  }catch(e){
-    showStatus("err","❌ Göndərilmədi");
-    showModal("err","❌ Server xətası");
-  }
-}
-
-/* ===============================
-   KEYBOARD SCAN (ENTER / TAB)
-   =============================== */
-scanEl.addEventListener("keydown",e=>{
-  if(e.key==="Enter" || e.key==="Tab"){
-    e.preventDefault();
-    handleScan(scanEl.value);
-  }
-});
-
-/* ===============================
-   FALLBACK (NO ENTER)
-   =============================== */
-let t=null;
-scanEl.addEventListener("input",()=>{
-  if(t) clearTimeout(t);
-  t=setTimeout(()=>{
-    if(scanEl.value.length>=8){
+  // Enter/Tab ilə tamamlanır
+  scanEl.addEventListener("keydown", (e) => {
+    if(e.key === "Enter" || e.key === "Tab"){
+      e.preventDefault();
       handleScan(scanEl.value);
     }
-  },200);
-});
+  });
 
-scanEl.focus();
+  // Enter göndərməyən skaner üçün fallback
+  let t = null;
+  scanEl.addEventListener("input", () => {
+    if (t) clearTimeout(t);
+    t = setTimeout(() => {
+      if (scanEl.value.length >= 8) handleScan(scanEl.value);
+    }, 180);
+  });
+
+  scanEl.focus();
+  showStatus("", "Hazırdır.");
 </script>
 </body>
 </html>
