@@ -75,22 +75,22 @@
   }
 
   // ✅ CORS-dan qaçmaq üçün JSON YOX, FORM göndəririk
-  async function sendToFlow(code){
-    const params = new URLSearchParams();
-    params.set("barcode", code);
-    params.set("operator", operatorEl.value.trim());
-    params.set("device", "Terminal-01");
+ async function sendToFlow(code){
+  const params = new URLSearchParams();
+  params.set("barcode", code);
+  params.set("operator", operatorEl.value.trim());
+  params.set("device", "Terminal-01");
 
-    // Heç bir custom header qoymuruq → preflight/OPTIONS olmur
-    const res = await fetch(ENDPOINT_URL, {
-      method: "POST",
-      body: params
-    });
+  const res = await fetch(ENDPOINT_URL, { method: "POST", body: params });
+  const text = await res.text().catch(()=> "");
 
-    // Bəzi hallarda browser response oxuya bilməsə də request gedir.
-    // Amma status 4xx/5xx olsa, burada tutacağıq:
-    if (!res.ok) throw new Error("HTTP " + res.status);
+  if(!res.ok){
+    throw new Error(`HTTP ${res.status} ${res.statusText} | ${text.slice(0,300)}`);
   }
+
+  return text;
+}
+
 
   async function handleScan(raw){
     const code = String(raw || "").trim();
