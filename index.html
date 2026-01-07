@@ -53,11 +53,57 @@ const msgEl = document.getElementById("msg");
 const modal = document.getElementById("modal");
 const modalBox = document.getElementById("modalBox");
 
+// -------------------------
+// OPERATOR YADDAŞI
+// -------------------------
 operatorEl.value = localStorage.getItem("operator") || "";
 operatorEl.oninput = () => localStorage.setItem("operator", operatorEl.value);
 
-let scannedSet = new Set(); // 🔒 BÜTÜN OXUNANLAR
+// -------------------------
+// GÜNLÜK DEDUP (localStorage)
+// -------------------------
+const DEDUP_DAY_KEY = "dedup_day_v1";
+const DEDUP_SET_KEY = "dedup_set_v1";
 
+// Yerli tarix üzrə gün açarı (YYYY-MM-DD)
+function todayKeyLocal(){
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth()+1).padStart(2,"0");
+  const day = String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+
+// Gün dəyişibsə set-i sıfırla
+function loadDailySet(){
+  const today = todayKeyLocal();
+  const savedDay = localStorage.getItem(DEDUP_DAY_KEY);
+
+  if(savedDay !== today){
+    localStorage.setItem(DEDUP_DAY_KEY, today);
+    localStorage.setItem(DEDUP_SET_KEY, "[]");
+  }
+
+  try{
+    const arr = JSON.parse(localStorage.getItem(DEDUP_SET_KEY) || "[]");
+    return new Set(Array.isArray(arr) ? arr : []);
+  }catch{
+    localStorage.setItem(DEDUP_SET_KEY, "[]");
+    return new Set();
+  }
+}
+
+function saveDailySet(set){
+  // çox yığılarsa browser limiti ola bilər; normalda gündəlik scan sayına yetir
+  localStorage.setItem(DEDUP_SET_KEY, JSON.stringify(Array.from(set)));
+}
+
+// gündəlik yaddaş set-i
+let scannedSet = loadDailySet();
+
+// -------------------------
+// QAYDALAR
+// -------------------------
 function isAllowed(code){
   return /^\d+$/.test(code) &&
     (code.startsWith("2026") || code.startsWith("2027") || code.startsWith("2028"));
@@ -81,8 +127,16 @@ async function send(code){
 }
 
 async function handle(code){
+  code = String(code || "").trim();
+
   scanEl.value = "";
   scanEl.focus();
+
+  // Hər scan-da gün dəyişimini yoxla (gecə yarısı keçidi üçün)
+  const curDay = todayKeyLocal();
+  if(localStorage.getItem(DEDUP_DAY_KEY) !== curDay){
+    scannedSet = loadDailySet();
+  }
 
   if(!isAllowed(code)){
     msgEl.className="err";
@@ -92,8 +146,8 @@ async function handle(code){
 
   if(scannedSet.has(code)){
     msgEl.className="err";
-    msgEl.innerHTML="Təkrar barkod bloklandı";
-    showModal("err","❌ Bu barkod artıq oxunub<br><span class='code'>"+code+"</span>");
+    msgEl.innerHTML="Təkrar barkod bloklandı (bu gün)";
+    showModal("err","❌ Bu barkod bu gün artıq oxunub<br><span class='code'>"+code+"</span>");
     return;
   }
 
@@ -105,7 +159,11 @@ async function handle(code){
 
   try{
     await send(code);
-    scannedSet.add(code); // 🔒 ARTIQ BLOKLANIR
+
+    // ✅ Uğurlu yazıldıqdan sonra günlük set-ə əlavə et və yadda saxla
+    scannedSet.add(code);
+    saveDailySet(scannedSet);
+
     msgEl.className="ok";
     msgEl.innerHTML="Yazıldı: "+code;
     showModal("ok","✅ Uğurla yazıldı<br><span class='code'>"+code+"</span>");
